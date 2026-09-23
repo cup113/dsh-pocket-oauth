@@ -116,11 +116,15 @@ test('E2E：未初始化 fail closed → 本机绑定（写盘）→ 本机免�
     assert.equal(local.status, 200, 'loopback 免认证');
     assert.match(local.body, /real-dsh-upstream/);
 
-    // 3) 本机 setup 保存凭据（真实写盘）
+    // 3) 本机 setup 保存凭据（真实写盘；表单回传初始化页下发的 nonce）
+    const setupPage = await raw(entry.port, { host: loopbackHost, path: '/pocket-setup' });
+    const nonce = /<input type="hidden" name="nonce" value="([0-9a-f]+)">/.exec(setupPage.body)?.[1];
+    assert.ok(nonce, '初始化页带 nonce');
     const save = await raw(entry.port, {
       method: 'POST', host: loopbackHost, path: '/pocket-setup/save',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
+        nonce,
         client_id: 'cid', client_secret: 'sec',
         origins: `http://${loopbackHost}\nhttps://${tunnelHost}`,
       }).toString(),
@@ -204,10 +208,14 @@ test('E2E：dsh web 重启（新进程）后旧会话 cookie 失效，需重新 
   const loopbackHost = `127.0.0.1:${first.port}`;
   let cookie;
   try {
+    const page = await raw(first.port, { host: loopbackHost, path: '/pocket-setup' });
+    const nonce = /<input type="hidden" name="nonce" value="([0-9a-f]+)">/.exec(page.body)?.[1];
+    assert.ok(nonce, '初始化页带 nonce');
     await raw(first.port, {
       method: 'POST', host: loopbackHost, path: '/pocket-setup/save',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
+        nonce,
         client_id: 'cid', client_secret: 'sec',
         origins: `http://${loopbackHost}\nhttps://${tunnelHost}`,
       }).toString(),

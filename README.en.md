@@ -124,6 +124,7 @@ Open `https://your-fixed-domain` on the phone → tap "**Sign in with Gitee**" �
 - **There is no PIN any more**: non-browser clients (curl, etc.) can therefore no longer use port 3081 — the inherent trade-off of the OAuth model
 - **If Gitee is unreachable**: remote sign-in is impossible (loopback is unaffected). Keep this in mind for closed networks
 - **Allowlisted origins are your attack surface**: don't share your tunnel domain with untrusted people; any allowlisted origin can start a sign-in (only the bound account passes)
+- **Local admin actions verify their origin (CSRF protection)**: saving credentials, starting a bind and signing out all check `Sec-Fetch-Site`/`Origin` and require a process-random nonce — other web pages cannot forge these local actions from the victim's browser; the session cookie carries `Secure` on `https` origins (omitted on `http`, where browsers would drop it)
 
 ## 🩹 FAQ
 

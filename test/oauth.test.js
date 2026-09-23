@@ -220,6 +220,13 @@ async function fakeUpstream() {
   return { port: server.address().port, seen, server };
 }
 
+/** 从初始化页 HTML 里取出表单 nonce（CSRF 防护要求提交时回传）。 */
+function nonceFrom(html) {
+  const m = /<input type="hidden" name="nonce" value="([0-9a-f]+)">/.exec(String(html ?? ''));
+  assert.ok(m, '初始化页必须带 nonce 隐藏字段');
+  return m[1];
+}
+
 /** 原始 http 请求（fetch 不能设 Host 头）。 */
 function raw(port, { method = 'GET', path = '/', host = '127.0.0.1', headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -335,6 +342,7 @@ test('登录全流程：start → gitee 302（含 state 与 redirect_uri）→ c
     assert.ok(sc.includes('HttpOnly'), 'HttpOnly');
     assert.ok(sc.includes('Max-Age=2592000'), '30 天持久');
     assert.ok(sc.includes('SameSite=Lax'), 'SameSite=Lax');
+    assert.ok(/;\s*Secure\b/.test(sc), 'https 入口的会话 cookie 带 Secure');
 
     // 3) 带 cookie → 放行上游；不带 → 401
     const authed = await raw(proxy.port, { host: 'pocket.example.com', path: '/api/x', headers: { cookie: `${SESSION_COOKIE}=${expected}`, accept: 'application/json' } });
@@ -353,6 +361,27 @@ test('登录全流程：start → gitee 302（含 state 与 redirect_uri）→ c
     const fresh = sessionCookieValue('4242', 'sk-2');
     const reAuthed = await raw(proxy.port, { host: 'pocket.example.com', path: '/api/x', headers: { cookie: `${SESSION_COOKIE}=${fresh}`, accept: 'application/json' } });
     assert.equal(reAuthed.status, 200, '新 cookie 放行');
+  } finally {
+    await proxy.close();
+    await new Promise((r) => up.server.close(r));
+  }
+});
+
+test('http 入口（loopback/局域网）的会话 cookie 不能带 Secure——否则浏览器直接丢弃、登录失效', async () => {
+  const up = await fakeUpstream();
+  const cfg = { value: null };
+  const proxy = await oauthProxy({ cfg, session: { key: 'sk-1' }, upstreamPort: up.port, fetchImpl: mockGitee() });
+  const loopbackHost = `127.0.0.1:${proxy.port}`;
+  try {
+    cfg.value = { clientId: 'cid', clientSecret: 'sec', callbackOrigins: [`http://${loopbackHost}`], boundUid: '4242', boundLogin: 'alice' };
+    const start = await raw(proxy.port, { host: loopbackHost, path: '/pocket-oauth/start' });
+    assert.equal(start.status, 302, 'http 白名单入口可发起登录');
+    const state = new URL(start.location).searchParams.get('state');
+    const cb = await raw(proxy.port, { host: loopbackHost, path: `/pocket-oauth/callback?code=c1&state=${state}` });
+    assert.equal(cb.status, 303);
+    const sc = Array.isArray(cb.setCookie) ? cb.setCookie.join(';') : String(cb.setCookie ?? '');
+    assert.ok(sc.includes(`${SESSION_COOKIE}=${sessionCookieValue('4242', 'sk-1')}`), '种下会话 cookie');
+    assert.ok(!/;\s*Secure\b/.test(sc), 'http 入口不加 Secure');
   } finally {
     await proxy.close();
     await new Promise((r) => up.server.close(r));
@@ -414,8 +443,9 @@ test('setup 页与绑定流程：仅本机；POST 保存 → 303 发起绑定 �
     const remoteBind = await raw(proxy.port, { host: 'pocket.example.com', path: '/pocket-oauth/start?bind=1' });
     assert.equal(remoteBind.status, 403);
 
-    // 保存凭据（loopback）→ 303 到 start?bind=1
+    // 保存凭据（loopback）→ 303 到 start?bind=1（表单必须回传初始化页下发的 nonce）
     const form = new URLSearchParams({
+      nonce: nonceFrom(setup.body),
       client_id: 'cid',
       client_secret: 'sec',
       origins: `http://${loopbackHost}\nhttps://pocket.example.com`,
@@ -443,6 +473,69 @@ test('setup 页与绑定流程：仅本机；POST 保存 → 303 发起绑定 �
     assert.match(cb.body, /alice/);
     assert.equal(cfg.value.boundUid, '4242');
     assert.equal(cfg.value.boundLogin, 'alice');
+  } finally {
+    await proxy.close();
+    await new Promise((r) => up.server.close(r));
+  }
+});
+
+test('CSRF 防护：跨站表单提交 / 无 nonce / 跨站 start / 跨站 logout 一律拒绝，且回调不受影响', async () => {
+  const up = await fakeUpstream();
+  const cfg = { value: { clientId: 'cid', clientSecret: 'sec', callbackOrigins: ['https://pocket.example.com'], boundUid: '4242', boundLogin: 'alice' } };
+  const proxy = await oauthProxy({ cfg, session: { key: 'sk-1' }, upstreamPort: up.port, fetchImpl: mockGitee() });
+  const loopbackHost = `127.0.0.1:${proxy.port}`;
+  const evil = { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site', referer: 'https://evil.example/' };
+  try {
+    // 1) 跨站 POST 初始化表单（真实攻击路径：浏览器按 URL 写 Host、源地址也是 loopback）
+    const page = await raw(proxy.port, { host: loopbackHost, path: '/pocket-setup' });
+    const nonce = nonceFrom(page.body);
+    const before = JSON.stringify(cfg.value);
+    const forged = await raw(proxy.port, {
+      method: 'POST', host: loopbackHost, path: '/pocket-setup/save',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...evil },
+      body: new URLSearchParams({ nonce, client_id: 'attacker', client_secret: 'x'.repeat(20), origins: 'https://evil.example' }).toString(),
+    });
+    assert.equal(forged.status, 403, '跨站提交被拒（即使 nonce 正确）');
+    assert.equal(JSON.stringify(cfg.value), before, '配置一个字节都没被改写');
+
+    // 2) 无 nonce / 错误 nonce 的同源提交 → 拒（老浏览器缺 Sec-Fetch-* 时的兜底防线）
+    const post = (payload, headers = {}) => raw(proxy.port, {
+      method: 'POST', host: loopbackHost, path: '/pocket-setup/save',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
+      body: new URLSearchParams(payload).toString(),
+    });
+    const noNonce = await post({ client_id: 'attacker2', client_secret: 'y'.repeat(20), origins: 'https://evil.example' });
+    assert.equal(noNonce.status, 403, '缺 nonce 拒绝');
+    const badNonce = await post({ nonce: 'deadbeef', client_id: 'attacker3', client_secret: 'z'.repeat(20), origins: 'https://evil.example' });
+    assert.equal(badNonce.status, 403, '错误 nonce 拒绝');
+    assert.equal(JSON.stringify(cfg.value), before, '伪造尝试均未改写配置');
+
+    // 3) 跨站发起绑定 / 登出 → 拒
+    const crossBind = await raw(proxy.port, { host: loopbackHost, path: '/pocket-oauth/start?bind=1', headers: evil });
+    assert.equal(crossBind.status, 403, '跨站发起绑定被拒');
+    const crossLogout = await raw(proxy.port, { host: 'pocket.example.com', path: '/pocket-oauth/logout', headers: evil });
+    assert.equal(crossLogout.status, 403, '跨站强制登出被拒');
+    assert.ok(!(crossLogout.setCookie ?? []).toString().includes(SESSION_COOKIE), '跨站登出没有清 cookie');
+
+    // 4) 同源（带 Origin）提交仍正常：Origin 与 Host 一致 → 放行
+    const ok = await post(
+      { nonce, client_id: 'cid2', client_secret: 'sec2', origins: `http://${loopbackHost}\nhttps://pocket.example.com` },
+      { origin: `http://${loopbackHost}` },
+    );
+    assert.equal(ok.status, 303, '同源提交放行');
+    assert.equal(cfg.value.clientId, 'cid2', '同源提交确实生效');
+
+    // 5) OAuth 回调本来就是 Gitee 跨站跳回来的，不能被来源校验误伤（其防线是单次 state）
+    cfg.value = { ...cfg.value, boundUid: '4242', boundLogin: 'alice' };
+    const start = await raw(proxy.port, { host: 'pocket.example.com', path: '/pocket-oauth/start' });
+    assert.equal(start.status, 302, '同源/直接发起的登录仍可启动');
+    const state = new URL(start.location).searchParams.get('state');
+    const cb = await raw(proxy.port, {
+      host: 'pocket.example.com', path: `/pocket-oauth/callback?code=c1&state=${state}`,
+      headers: { 'sec-fetch-site': 'cross-site' }, // 模拟从 gitee.com 跳回
+    });
+    assert.equal(cb.status, 303, '跨站回调照常完成登录');
+    assert.ok((cb.setCookie ?? []).toString().includes(SESSION_COOKIE), '并种下会话 cookie');
   } finally {
     await proxy.close();
     await new Promise((r) => up.server.close(r));
