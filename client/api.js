@@ -5,19 +5,14 @@ export const MOBILE_RIGHTBAR_EVENT = 'dsh-pocket:mobile-rightbar';
 
 export const POCKET_ENDPOINTS = Object.freeze({
   status: 'pocket.status',
-  tunnelStart: 'tunnel.start',
-  tunnelStop: 'tunnel.stop',
-  tunnelSetConfig: 'tunnel.setConfig',
   version: 'pocket.version',
   update: 'pocket.update',
   restart: 'pocket.restart',
-  lanTokenRefresh: 'token.lanRefresh',
-  lanAuthSetEnabled: 'lanAuth.setEnabled',
-  lanSetOverride: 'lan.setOverride',
-  lanSetEnabled: 'lan.setEnabled',
   mobileRightbarSetEnabled: 'mobile.rightbar.setEnabled',
-  pinSetCustom: 'pin.setCustom',
   pocketReset: 'pocket.reset',
+  // OAuth 管理（loopback-only RPC 通道内调用）
+  oauthRotateSession: 'oauth.rotateSession',
+  oauthUnbind: 'oauth.unbind',
   // 移动端「复制文件内容」（issue #17）：手机经此 RPC 让主机读取文件正文，
   // 再写入剪贴板——因为手机无法直接打开电脑上的文件。
   fileRead: 'pocket.fileRead',
@@ -57,20 +52,21 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-/** 浏览器可见的状态字段（无敏感信息；含二维码 data URL）。 */
+/** 浏览器可见的状态字段（无敏感信息；含二维码 data URL 与 OAuth 安全面视图）。 */
 export function redactStatus(s) {
   return {
     proxyRunning: s?.proxyRunning === true,
     proxyPort: s?.proxyPort ?? null,
-    lanUrl: s?.lanUrl ?? null,
-    lanQr: s?.lanQr ?? null,
-    lanCandidates: Array.isArray(s?.lanCandidates) ? s.lanCandidates : [],
-    lanIpOverride: s?.lanIpOverride ?? '',
-    tunnelRunning: s?.tunnelRunning === true,
-    tunnelUrl: s?.tunnelUrl ?? null,
-    tunnelQr: s?.tunnelQr ?? null,
-    tunnelState: s?.tunnelState ?? { phase: 'idle' },
-    tunnelConfig: s?.tunnelConfig ?? { mode: 'quick', hostname: '', tokenSet: false },
     dshPort: s?.dshPort ?? null,
+    lanCandidates: Array.isArray(s?.lanCandidates) ? s.lanCandidates : [],
+    oauth: {
+      configured: s?.oauth?.configured === true,
+      callbackOrigins: Array.isArray(s?.oauth?.callbackOrigins) ? s.oauth.callbackOrigins : [],
+      bound: s?.oauth?.bound === true,
+      boundLogin: s?.oauth?.boundLogin ?? null,
+    },
+    originQrs: Array.isArray(s?.originQrs)
+      ? s.originQrs.filter((o) => o && typeof o.origin === 'string').map((o) => ({ origin: o.origin, qr: o.qr ?? null }))
+      : [],
   };
 }

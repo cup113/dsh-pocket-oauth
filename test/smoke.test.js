@@ -49,9 +49,10 @@ test('真实链路：代理转发 + polyfill 注入 + 状态快照（无 stub）
     assert.ok(html.includes('real-dsh'), '代理转发到上游');
     assert.ok(html.includes('randomUUID'), '非安全上下文 polyfill 已注入');
 
-    // 状态快照：局域网 URL + 真实 qrcode 生成的二维码
-    assert.ok(st.lanUrl.startsWith('http://'), '局域网 URL');
-    assert.ok(st.lanQr.startsWith('data:image/png;base64,'), '真实 qrcode 生成的二维码');
+    // 状态快照：OAuth 视图 + LAN 候选（未配置时 originQrs 为空）
+    assert.equal(st.oauth.configured, false, '未初始化 → 未配置视图');
+    assert.deepEqual(st.originQrs, []);
+    assert.ok(Array.isArray(st.lanCandidates), 'LAN 候选存在');
   } finally {
     await service.dispose();
     await new Promise((r) => up.close(r));
@@ -71,7 +72,11 @@ test('真实链路：RPC status 走真实 service（含 restartNotice）', async
     assert.equal(r.ok, true);
     assert.equal(r.value.proxyRunning, true);
     assert.ok(r.value.proxyPort > 0);
-    assert.ok(r.value.lanQr.startsWith('data:image/png;base64,'), 'RPC 返回真实二维码');
+    assert.deepEqual(
+      r.value.oauth,
+      { configured: false, callbackOrigins: [], bound: false, boundLogin: null },
+      'RPC 返回 OAuth 未配置视图',
+    );
     assert.equal(r.value.restartNotice, null, '无重启标记');
   } finally {
     await service.dispose();
@@ -93,14 +98,14 @@ test('client bundle 注入 React 绑定（PR #1 回归：mobile 组件曾 React 
   assert.ok(injectIdx !== -1 && createIdx !== -1 && injectIdx < createIdx, 'React 声明先于使用');
 });
 
-test('client bundle：status 访问必须可选链（回归：1.9.0 白屏——首次渲染 status=null 时裸 status.lanAuthEnabled 抛 TypeError）', async () => {
-  // load() 是异步的：首次渲染时 status 为 null。LAN 开关行渲染在 lanUrl 安全分支之外，
-  // 1.9.0 在这里裸访问 status.lanAuthEnabled → React 整树崩溃 → 设置页白屏。
-  // 修复：全部 status?.lanAuthEnabled。此测试防止再次出现裸访问（esbuild 会原样保留 ?.）。
+test('client bundle：status 访问必须可选链（回归：1.9.0 白屏——首次渲染 status=null 时裸 status.oauth 抛 TypeError）', async () => {
+  // load() 是异步的：首次渲染时 status 为 null。远程访问区块渲染在安全分支之外，
+  // 裸访问 status.oauth → React 整树崩溃 → 设置页白屏。
+  // 修复：全部 status?.oauth。此测试防止再次出现裸访问（esbuild 会原样保留 ?.）。
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
-  assert.ok(!src.includes('status.lanAuthEnabled'), 'bundle 不允许裸 status.lanAuthEnabled（必须可选链）');
-  assert.ok(src.includes('status?.lanAuthEnabled'), 'bundle 存在可选链访问');
+  assert.ok(!src.includes('status.oauth'), 'bundle 不允许裸 status.oauth（必须可选链）');
+  assert.ok(src.includes('status?.oauth'), 'bundle 存在可选链访问');
 });
 
 test('移动导航 backdrop（issue #38）：点击穿透不抢抽屉内点击 + 抽屉外点击关闭保留', async () => {
@@ -125,11 +130,11 @@ test('移动导航 backdrop（issue #38）：点击穿透不抢抽屉内点击 +
   assert.ok(!src.includes('z-index: 600 !important'), '不再用 600（会被 web-ui-all 的 1050 遮罩盖住）');
 });
 
-test('公网免责声明（issue #31）：bundle 含弹框与勾选逻辑，RPC 必须带 disclaimer 确认', async () => {
+test('远程访问管理（v3）：bundle 提供 OAuth 登出所有设备 / 解除绑定的确认弹框与 RPC 调用', async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
-  assert.ok(src.includes('disclaimer'), 'bundle 含免责声明逻辑');
-  assert.ok(src.includes('disclaimer: true'), '开启公网带免责声明确认参数');
+  assert.ok(src.includes('oauth.rotateSession'), 'bundle 含会话轮换 RPC');
+  assert.ok(src.includes('oauth.unbind'), 'bundle 含解绑 RPC');
 });
 
 test('文件浏览（issue #48）：宿主无 aionui explorer 时隐藏入口；点 Files 关抽屉', async () => {

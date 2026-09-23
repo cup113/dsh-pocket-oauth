@@ -54,8 +54,14 @@ function fakeWebServer() {
 /** 最小 fake service：只暴露 status()。 */
 function fakeService({ dshPort = 3080 } = {}) {
   return {
-    status: async () => ({ dshPort, proxyRunning: true, proxyPort: 3081, lanUrl: 'http://127.0.0.1:3081', lanQr: null, lanCandidates: [], lanIpOverride: '', tunnelRunning: false, tunnelUrl: null, tunnelQr: null, tunnelState: { phase: 'idle' }, tunnelConfig: { mode: 'quick', hostname: '', tokenSet: false } }),
-    stopTunnel() {},
+    status: async () => ({
+      dshPort,
+      proxyRunning: true,
+      proxyPort: 3081,
+      lanCandidates: [],
+      oauth: { configured: false, callbackOrigins: [], bound: false, boundLogin: null },
+      originQrs: [],
+    }),
     dispose: async () => {},
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-pocket",
-  "description": "把 DeepSeek Harness 装进你的口袋：一个包、一个设置页，手机扫码即同步访问电脑上的 DSH（局域网 + 公网，实时同屏）。",
+  "description": "把 DeepSeek Harness 装进你的口袋：单端口 3081 + Gitee OAuth 登录，自建隧道（固定域名）即可远程实时同屏访问电脑上的 DSH。",
   "type": "module",
   "main": "lib/index.js",
   "bin": {
@@ -24,12 +24,10 @@
   "scripts": {
     "build:client": "node client/build.mjs",
     "release": "semantic-release",
-    "test": "node --test --test-timeout=30000 \"test/*.test.js\"",
-    "test:local": "node --test --test-timeout=300000 \"test/local/*.test.js\""
+    "test": "node --test --test-timeout=30000 \"test/*.test.js\""
   },
   "dependencies": {
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
@@ -51,8 +49,9 @@
     "dsh-plugin",
     "mobile",
     "remote",
-    "qr",
-    "tunnel"
+    "oauth",
+    "gitee",
+    "qr"
   ],
   "dsh": {
     "bundle": {
@@ -71,12 +70,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaobeichen/dsh-pocket.git"
+    "url": "git+https://github.com/cup113/dsh-pocket-oauth.git"
   },
   "bugs": {
-    "url": "https://github.com/shaobeichen/dsh-pocket/issues"
+    "url": "https://github.com/cup113/dsh-pocket-oauth/issues"
   },
-  "homepage": "https://github.com/shaobeichen/dsh-pocket",
+  "homepage": "https://github.com/cup113/dsh-pocket-oauth",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
