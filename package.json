@@ -44,14 +44,17 @@
   },
   "license": "GPL-2.0",
   "keywords": [
+    "deepseek",
     "deepseek-harness",
     "dsh",
     "dsh-plugin",
+    "dsh-pocket",
+    "cordis",
     "mobile",
-    "remote",
-    "oauth",
+    "remote-access",
+    "oauth2",
     "gitee",
-    "qr"
+    "qr-code"
   ],
   "dsh": {
     "bundle": {
