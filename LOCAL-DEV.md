@@ -74,20 +74,22 @@ shasum -a 1 client/client.js | cut -c1-12
 
 两者一致 = 本地代码已生效。
 
-## 四、换回 npm 官方版本
+## 四、换回 GitHub 版本（当前默认安装方式）
 
 ```sh
-dsh plugin --profile web add dsh-pocket -w
+dsh plugin --profile web add github:cup113/dsh-pocket-oauth
 ```
 
-重装会把软链换回 pnpm 的正式安装：
+重装会把软链换成从仓库 main 拉取的正式安装（包名是 `dsh-pocket`，仓库名是 `dsh-pocket-oauth`）：
 
 ```sh
-ls -l ~/.dsh/profiles/web/node_modules/dsh-pocket
-# dsh-pocket -> .pnpm/dsh-pocket@<版本>/node_modules/dsh-pocket
+ls -l ~/.dsh/profiles/web/node_modules/dsh-pocket      # 真实目录，不再是软链
+grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
+# specifier: github:cup113/dsh-pocket-oauth
+# version: https://codeload.github.com/cup113/dsh-pocket-oauth/tar.gz/<提交>
 ```
 
-之后重启 dsh web 即可。
+之后重启 dsh web 即可。pnpm 会把结果 pin 在当时的 main 提交上——想跟上新提交，再跑一次上面的命令。
 
 ---
 
