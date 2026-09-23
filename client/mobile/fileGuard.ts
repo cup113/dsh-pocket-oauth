@@ -9,6 +9,11 @@
 // 识别方式：不依赖 dsh-web 的 hash 类名（每次构建都变），只认「文本像文件路径的
 // <button>/<a>」——文件链接按钮的文案就是路径（如 lib/proxy.mjs / /Users/.../x.ts）。
 
+// 写剪贴板统一走 client/api.js 的共享实现（navigator.clipboard + execCommand 兜底）：
+// 非安全上下文（局域网 http://IP 入口）下 clipboard API 不可用，必须回退，
+// 否则手机上点「复制」静默失败。设置页的复制按钮同样用这一份。
+import { copyText } from '../api.js'
+
 /** 手机上点击文件时弹出的提示。 */
 const GUARD_MSG = '手机上无法直接打开电脑上的文件'
 /** 「添加工作区」入口的文案（随语言变化），两种都覆盖。 */
@@ -31,31 +36,6 @@ function looksLikeFilePath(text: string | null): boolean {
   if (/\/[\w.\-]+\.\w{1,12}$/.test(t)) return true
   if (/[\w.\-]+\/[\w.\-]+\.\w{1,12}/.test(t)) return true
   return false
-}
-
-/** 写剪贴板：优先 navigator.clipboard，非安全上下文（局域网 http）回退 execCommand。 */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch { /* 回退 */ }
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.top = '-9999px'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.focus()
-    ta.select()
-    const okCopy = document.execCommand('copy')
-    ta.remove()
-    return okCopy
-  } catch {
-    return false
-  }
 }
 
 export function startFileGuard(

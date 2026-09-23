@@ -86,6 +86,18 @@ function compareVersions(a, b) {
   }
   return 0;
 }
+function fallbackKind(origin) {
+  try {
+    const h2 = new URL(origin).hostname.toLowerCase();
+    if (h2 === "localhost" || h2 === "::1" || h2 === "0.0.0.0" || /^127\./.test(h2)) return "local";
+    if (/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1(?:0\d|1\d|2[0-7]))\.)/.test(h2)) return "lan";
+    if (/^(?:fe80:|f[cd][0-9a-f]{2}:)/.test(h2) || h2.endsWith(".local") || !h2.includes(".")) return "lan";
+    return "public";
+  } catch {
+    return "public";
+  }
+}
+var ORIGIN_KINDS = /* @__PURE__ */ new Set(["local", "lan", "public"]);
 function redactStatus(s) {
   return {
     proxyRunning: s?.proxyRunning === true,
@@ -98,8 +110,84 @@ function redactStatus(s) {
       bound: s?.oauth?.bound === true,
       boundLogin: s?.oauth?.boundLogin ?? null
     },
-    originQrs: Array.isArray(s?.originQrs) ? s.originQrs.filter((o) => o && typeof o.origin === "string").map((o) => ({ origin: o.origin, qr: o.qr ?? null })) : []
+    originQrs: Array.isArray(s?.originQrs) ? s.originQrs.filter((o) => o && typeof o.origin === "string").map((o) => ({
+      origin: o.origin,
+      // 展示分组（local/lan/public）：服务端没给（旧版本）时按 host 兜底推断
+      kind: ORIGIN_KINDS.has(o.kind) ? o.kind : fallbackKind(o.origin),
+      qr: o.qr ?? null
+    })) : []
   };
+}
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+function buildTroubleshootingContext(status, meta = {}) {
+  const s = status ?? {};
+  const oauth = s.oauth ?? {};
+  const groups = { local: [], lan: [], public: [] };
+  for (const o of s.originQrs ?? []) {
+    const kind = ORIGIN_KINDS.has(o?.kind) ? o.kind : fallbackKind(o?.origin ?? "");
+    if (o?.origin) groups[kind].push(o.origin);
+  }
+  const origins = s.oauth?.callbackOrigins ?? [];
+  for (const origin of origins) {
+    const kind = fallbackKind(origin);
+    if (!groups[kind].includes(origin)) groups[kind].push(origin);
+  }
+  const list = (arr) => arr.length ? arr.map((x) => `- ${x}`).join("\n") : "-\uFF08\u65E0\uFF09";
+  const v = meta.version ?? {};
+  const installKindText = { source: "source\uFF08\u672C\u5730 git clone / link: \u8F6F\u94FE\uFF0C\u66F4\u65B0\u8D70 git pull\uFF09", git: "git\uFF08github: \u89C4\u683C\u5B89\u88C5\uFF0C\u66F4\u65B0\u8D70\u91CD\u65B0 add\uFF09", unknown: "unknown\uFF08\u672A\u8BC6\u522B\uFF09" }[v.installKind] ?? v.installKind ?? "\u672A\u77E5";
+  return `# DSH Pocket \u6392\u969C\u4E0A\u4E0B\u6587
+> \u7531 dsh-pocket \u8BBE\u7F6E\u9875\u300C\u590D\u5236\u6392\u969C\u4E0A\u4E0B\u6587\u300D\u6309\u94AE\u751F\u6210\uFF0C\u53EF\u76F4\u63A5\u7C98\u8D34\u7ED9 AI \u6392\u969C\u3002\u654F\u611F\u4FE1\u606F\uFF08Client Secret\uFF09\u4ECE\u4E0D\u56DE\u663E\uFF0C\u4E5F\u4E0D\u5728\u672C\u4E0A\u4E0B\u6587\u4E2D\u3002
+
+## \u6211\u8981\u5B9E\u73B0\u4EC0\u4E48
+\u4E0D\u5728\u7535\u8111\u524D\u65F6\uFF0C\u901A\u8FC7\u4EE5\u4E0B\u5730\u5740**\u5B9E\u65F6\u8BBF\u95EE\u7535\u8111\u4E0A\u7684 DeepSeek Harness\uFF08dsh web\uFF09**\u2014\u2014\u624B\u673A/\u4EFB\u610F\u6D4F\u89C8\u5668\u6253\u5F00\u5373\u662F\u7535\u8111\u754C\u9762\uFF0C\u53EF\u53D1\u6D88\u606F\u3001\u770B\u6D41\u5F0F\u8F93\u51FA\u3001\u70B9\u5BA1\u6279\uFF1A
+- \u672C\u673A / \u5C40\u57DF\u7F51\uFF1A
+${list([...groups.local, ...groups.lan])}
+- \u516C\u7F51\uFF08\u81EA\u5EFA\u96A7\u9053 / \u56FA\u5B9A\u57DF\u540D\uFF09\uFF1A
+${list(groups.public)}
+
+## \u7CFB\u7EDF\u5982\u4F55\u5DE5\u4F5C\uFF08dsh-pocket \u67B6\u6784\u4E0E\u8BA4\u8BC1\u6A21\u578B\uFF09
+- dsh-pocket \u662F dsh web \u7684\u63D2\u4EF6\uFF1A\u5728\u672C\u673A\u8D77\u4E00\u4E2A**\u5355\u7AEF\u53E3\u53CD\u5411\u4EE3\u7406**\uFF08\u9ED8\u8BA4 0.0.0.0:${s.proxyPort ?? 3081}\uFF09\uFF0C\u628A\u5165\u7AD9\u8BF7\u6C42\u7684 Host/Origin \u6539\u5199\u6210 127.0.0.1:${s.dshPort ?? 3080}\uFF08loopback\uFF09\u540E\u8F6C\u53D1\uFF1BHTTP \u4E0E WebSocket \u5168\u900F\u4F20\uFF0C\u6240\u4EE5\u624B\u673A\u770B\u5230\u7684\u5C31\u662F\u7535\u8111\u4E0A\u7684\u754C\u9762\u3002
+- \u516C\u7F51\u5165\u53E3\u7531\u7528\u6237**\u81EA\u5EFA\u96A7\u9053**\uFF08\u5FC5\u987B\u6709\u56FA\u5B9A\u57DF\u540D\uFF09\u6307\u5411 \`http://127.0.0.1:${s.proxyPort ?? 3081}\`\uFF1B\u96A7\u9053/\u53CD\u4EE3**\u5FC5\u987B\u4FDD\u6301\u539F\u57DF\u540D Host \u8F6C\u53D1**\uFF08\u82E5\u628A Host \u6539\u5199\u6210 127.0.0.1\uFF0C\u516C\u7F51\u8BF7\u6C42\u4F1A\u88AB\u5224\u4E3A\u672C\u673A\u800C\u514D\u8BA4\u8BC1\uFF09\u3002
+- \u8BA4\u8BC1 = **Gitee OAuth**\uFF1A\u672C\u673A\u6D4F\u89C8\u5668\u6253\u5F00 \`http://127.0.0.1:${s.proxyPort ?? 3081}/pocket-setup\` \u521D\u59CB\u5316\uFF0C\u7ED1\u5B9A\u4E00\u4E2A Gitee \u8D26\u53F7\uFF08uid\uFF09\uFF1B\u6B64\u540E\u4EFB\u610F\u8BBE\u5907\u7ECF\u767D\u540D\u5355\u5730\u5740\u7528**\u540C\u4E00\u4E2A** Gitee \u8D26\u53F7\u767B\u5F55\u6362\u4F1A\u8BDD cookie\uFF08HttpOnly\uFF0C\u7ED1\u5B9A dsh web \u8FDB\u7A0B\u7EA7\u5BC6\u94A5\u2014\u2014**dsh web \u91CD\u542F\u540E\u6240\u6709\u8BBE\u5907\u9700\u91CD\u65B0\u767B\u5F55**\uFF0C\u5C5E\u9884\u671F\uFF09\u3002
+- Gitee \u5E94\u7528\uFF08gitee.com/oauth/applications\uFF0C\u9700\u52FE\u9009 user_info \u6743\u9650\uFF09\u7684\u300C\u5E94\u7528\u56DE\u8C03\u5730\u5740\u300D\u4E0E\u63D2\u4EF6\u767D\u540D\u5355**\u9010\u5B57\u7B26\u4E00\u81F4**\uFF1A\u6BCF\u6761 = \`<\u8BBF\u95EE\u5730\u5740>/pocket-oauth/callback\`\uFF08\u534F\u8BAE\u3001\u57DF\u540D\u3001\u7AEF\u53E3\u90FD\u8981\u4E00\u6837\uFF09\u3002
+
+## \u5F53\u524D\u72B6\u6001\u5FEB\u7167
+- \u63D2\u4EF6\u7248\u672C\uFF1A${v.current ? `v${v.current}` : "\u672A\u77E5"}${v.loaded ? `\uFF08\u8FDB\u7A0B\u8FD0\u884C v${v.loaded}\uFF09` : ""}\uFF1B\u5B89\u88C5\u65B9\u5F0F\uFF1A${installKindText}
+- \u4EE3\u7406\uFF1A${s.proxyRunning === true ? `\u8FD0\u884C\u4E2D\uFF0C\u7AEF\u53E3 ${s.proxyPort ?? "?"}` : "\u672A\u8FD0\u884C/\u542F\u52A8\u4E2D"}\uFF1B\u4E0A\u6E38 dsh web \u7AEF\u53E3\uFF1A${s.dshPort ?? "?"}
+- Gitee OAuth\uFF1A${oauth.configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"}${oauth.bound ? `\uFF0C\u5DF2\u7ED1\u5B9A\u8D26\u53F7 ${oauth.boundLogin ?? "?"}` : "\uFF0C\u672A\u7ED1\u5B9A\u8D26\u53F7"}\uFF1B\u56DE\u8C03\u767D\u540D\u5355 ${oauth.callbackOrigins?.length ?? origins.length ?? 0} \u6761
+- \u672C\u673A\u5C40\u57DF\u7F51 IP \u5019\u9009\uFF1A${(s.lanCandidates ?? []).join("\u3001") || "\u65E0"}
+- \u6D4F\u89C8\u5668 UA\uFF1A${meta.ua ?? "\u672A\u63D0\u4F9B"}
+
+## \u5E38\u89C1\u5751\uFF08\u6309\u547D\u4E2D\u7387\u6392\u5E8F\uFF09
+1. Gitee \u62A5\u300Credirect_uri \u4E0D\u4E00\u81F4/\u6388\u6743\u672A\u5B8C\u6210\u300D\u2192 \u56DE\u8C03\u5730\u5740\u6CA1\u6709\u9010\u5B57\u7B26\u5339\u914D\uFF08http/https\u3001\u57DF\u540D\u3001\u7AEF\u53E3\u3001\u8DEF\u5F84\uFF09\uFF0CGitee \u5E94\u7528\u4E0E\u63D2\u4EF6\u767D\u540D\u5355\u4E24\u5904\u90FD\u8981\u4E00\u81F4\u3002
+2. Safari \u6253\u4E0D\u5F00 http:// + \u7EAF IP \u5165\u53E3\uFF08\u53CD\u590D\u8DF3\u8F6C\uFF09\u2192 Safari \u4E0D\u5728\u8BE5\u7C7B\u6E90\u4E0A\u4FDD\u5B58\u63E1\u624B cookie\uFF1B\u6362 Chromium \u7CFB\u6D4F\u89C8\u5668\uFF0C\u6216\u6539\u7528 https \u56FA\u5B9A\u57DF\u540D\u5165\u53E3\u3002
+3. \u516C\u7F51\u57DF\u540D\u6253\u5F00\u5F02\u5E38/\u88AB\u62D2 \u2192 \u53CD\u4EE3\u628A Host \u6539\u5199\u6210\u4E86 127.0.0.1\uFF0C\u6216\u8BE5\u57DF\u540D\u4E0D\u5728\u767D\u540D\u5355/Gitee \u56DE\u8C03\u4E2D\u3002
+4. \u4EE3\u7406\u7AEF\u53E3\u987A\u5EF6\uFF083081 \u88AB\u5360\u81EA\u52A8\u6362 3082\uFF09\u2192 Gitee \u56DE\u8C03\u91CC\u7684\u7AEF\u53E3\u5168\u90E8\u5931\u914D\uFF0C\u9700\u540C\u6B65\u6539\u4E24\u5904\u3002
+5. dsh web \u91CD\u542F/\u66F4\u65B0\u540E\u624B\u673A\u88AB\u8E22\u56DE\u767B\u5F55\u9875 \u2192 \u4F1A\u8BDD\u7ED1\u5B9A\u8FDB\u7A0B\u7EA7\u5BC6\u94A5\uFF0C\u5C5E\u9884\u671F\u8BBE\u8BA1\u3002
+`;
 }
 
 // client/mobile/MobileNavToggle.tsx
@@ -412,30 +500,6 @@ function looksLikeFilePath(text) {
   if (/\/[\w.\-]+\.\w{1,12}$/.test(t)) return true;
   if (/[\w.\-]+\/[\w.\-]+\.\w{1,12}/.test(t)) return true;
   return false;
-}
-async function copyText(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.top = "-9999px";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const okCopy = document.execCommand("copy");
-    ta.remove();
-    return okCopy;
-  } catch {
-    return false;
-  }
 }
 function startFileGuard(readFile) {
   let toastEl = null;
@@ -1899,7 +1963,7 @@ var zh2 = {
   "restartingDetail": "\u23F3 \u6B63\u5728\u91CD\u542F\u751F\u6548\uFF08\u901A\u5E38 10-30 \u79D2\uFF09\xB7 \u5DF2\u7B49\u5F85 {s} \u79D2",
   "updatedAutoDetail": "\u2705 \u5DF2\u66F4\u65B0\uFF0C\u6B63\u5728\u81EA\u52A8\u91CD\u542F\u751F\u6548\uFF0C\u8BF7\u7A0D\u5019\u5237\u65B0",
   "updatedRestartDetail": "\u2705 \u5DF2\u66F4\u65B0\uFF0C\u91CD\u542F dsh web \u751F\u6548",
-  "updateFailed": "\u274C \u5931\u8D25\uFF1A{err}\uFF08\u624B\u52A8\u66F4\u65B0\uFF1Adsh plugin --profile web update dsh-pocket --latest -w\uFF09",
+  "updateFailed": "\u274C \u5931\u8D25\uFF1A{err}\uFF08\u624B\u52A8\u66F4\u65B0\uFF1A{cmd}\uFF09",
   "versionRange": "\u5F53\u524D v{cur} \u2192 \u6700\u65B0 v{latest}",
   "remoteAccess": "\u8FDC\u7A0B\u8BBF\u95EE\uFF08Gitee \u767B\u5F55\uFF09",
   "proxyReady": "\u8FD0\u884C\u4E2D \xB7 \u7AEF\u53E3 {port}",
@@ -1907,15 +1971,24 @@ var zh2 = {
   "setupUrlLabel": "\u521D\u59CB\u5316\u5165\u53E3\uFF08\u5728\u672C\u673A\u6D4F\u89C8\u5668\u6253\u5F00\uFF09",
   "copy": "\u590D\u5236",
   "copied": "\u2705 \u5DF2\u590D\u5236",
+  "copyFailed": "\u274C \u590D\u5236\u5931\u8D25\uFF08\u6D4F\u89C8\u5668\u9650\u5236\uFF09",
+  "copyContext": "\u{1F4CB} \u590D\u5236\u6392\u969C\u4E0A\u4E0B\u6587",
+  "copyContextHint": "\u751F\u6210\u4E00\u6BB5\u5305\u542B\u76EE\u6807\u3001\u67B6\u6784\u4E0E\u5F53\u524D\u72B6\u6001\u7684\u6587\u672C\uFF08\u5DF2\u8131\u654F\uFF09\uFF0C\u53EF\u7C98\u8D34\u7ED9 AI \u5E2E\u4F60\u6392\u67E5",
+  "copyContextDone": "\u2705 \u5DF2\u590D\u5236\u6392\u969C\u4E0A\u4E0B\u6587\uFF0C\u53EF\u7C98\u8D34\u7ED9 AI",
   "oauthGuideTitle": "\u521D\u59CB\u5316\u6B65\u9AA4\uFF08\u53EA\u9700\u4E00\u6B21\uFF09",
   "oauthGuide1": "\u2460 \u5728 Gitee \u521B\u5EFA OAuth \u5E94\u7528\uFF08\u8BBE\u7F6E \u2192 \u5B89\u5168\u8BBE\u7F6E \u2192 \u7B2C\u4E09\u65B9\u5E94\u7528\uFF09\u3002\u300C\u5E94\u7528\u56DE\u8C03\u5730\u5740\u300D\u767B\u8BB0\uFF08\u53EF\u591A\u6761\uFF0C\u987B\u9010\u5B57\u7B26\u4E00\u81F4\uFF09\uFF1Ahttp://127.0.0.1:{port}/pocket-oauth/callback\uFF08\u672C\u673A\uFF09\u3001https://\u4F60\u7684\u56FA\u5B9A\u57DF\u540D/pocket-oauth/callback\uFF08\u81EA\u5EFA\u96A7\u9053\uFF09\uFF0C\u53EF\u9009 http://\u5C40\u57DF\u7F51IP:{port}/pocket-oauth/callback\u3002",
   "oauthGuide2": "\u2461 \u5728\u672C\u673A\u6D4F\u89C8\u5668\u6253\u5F00\u4E0A\u9762\u7684\u521D\u59CB\u5316\u5165\u53E3\uFF0C\u586B\u5165 Client ID / Secret \u4E0E\u8BBF\u95EE\u5730\u5740\uFF0C\u70B9\u300C\u4FDD\u5B58\u5E76\u7ED1\u5B9A Gitee \u8D26\u53F7\u300D\u3002",
-  "oauthGuide3": "\u2462 \u6B64\u540E\u4EFB\u610F\u8BBE\u5907\u7ECF\u767D\u540D\u5355\u5730\u5740\u8BBF\u95EE\uFF0C\u7528\u540C\u4E00 Gitee \u8D26\u53F7\u767B\u5F55\u5373\u53EF\uFF08\u4EE3\u66FF PIN\uFF09\u3002",
+  "oauthGuide3": "\u2462 \u6B64\u540E\u4EFB\u610F\u8BBE\u5907\u7ECF\u767D\u540D\u5355\u5730\u5740\u8BBF\u95EE\uFF0C\u7528\u540C\u4E00\u4E2A Gitee \u8D26\u53F7\u767B\u5F55\u5373\u53EF\u2014\u2014\u5EFA OAuth \u5E94\u7528\u4E0E\u767B\u5F55\u7528\u7684\u662F\u540C\u4E00\u4E2A\u8D26\u53F7\uFF0C\u5168\u7A0B\u53EA\u9700\u8FD9\u4E00\u4E2A Gitee \u8D26\u53F7\uFF08\u4EE3\u66FF PIN\uFF09\u3002",
   "oauthState": "Gitee \u8D26\u53F7",
   "oauthBound": "\u5DF2\u7ED1\u5B9A\uFF1A{login}",
   "oauthUnbound": "\u5DF2\u4FDD\u5B58\u51ED\u636E\uFF0C\u5F85\u7ED1\u5B9A\u8D26\u53F7\u3002",
   "oauthUnboundHint": "\u5728\u672C\u673A\u6253\u5F00\u521D\u59CB\u5316\u5165\u53E3\uFF0C\u70B9\u300C\u4FDD\u5B58\u5E76\u7ED1\u5B9A Gitee \u8D26\u53F7\u300D\u5B8C\u6210\u6700\u540E\u4E00\u6B65\u3002",
   "accessOrigins": "\u8BBF\u95EE\u5730\u5740\uFF08\u56DE\u8C03\u767D\u540D\u5355\uFF09\uFF1A",
+  "originsGroupLocal": "\u{1F4CD} \u672C\u673A / \u5C40\u57DF\u7F51\uFF08\u540C\u4E00\u7F51\u7EDC\uFF09",
+  "originsGroupLocalHint": "\u624B\u673A\u4E0E\u7535\u8111\u8FDE\u540C\u4E00 Wi-Fi \u65F6\u76F4\u63A5\u626B\u7801\u5373\u53EF\uFF0C\u65E0\u9700\u96A7\u9053",
+  "originsGroupPublic": "\u{1F310} \u516C\u7F51\uFF08\u81EA\u5EFA\u96A7\u9053 / \u56FA\u5B9A\u57DF\u540D\uFF09",
+  "originsGroupPublicHint": "\u9700\u81EA\u5EFA\u96A7\u9053\u628A\u56FA\u5B9A\u57DF\u540D\u6307\u5230 http://127.0.0.1:3081\uFF0C\u4E14\u53CD\u4EE3\u4E0D\u5F97\u628A Host \u6539\u5199\u6210 127.0.0.1",
+  "originsGroupPublicEmpty": "\u8FD8\u6CA1\u6709\u516C\u7F51\u5165\u53E3\uFF1A\u628A\u96A7\u9053\u56FA\u5B9A\u57DF\u540D\uFF08https://\u2026\uFF09\u52A0\u8FDB\u767D\u540D\u5355\u5373\u53EF\u4ECE\u5916\u7F51\u8BBF\u95EE",
   "qrHint": "\u626B\u7801\u6253\u5F00\u540E\u70B9\u300C\u4F7F\u7528 Gitee \u8D26\u53F7\u767B\u5F55\u300D",
   "lanCandidatesHint": "\u672C\u673A\u5C40\u57DF\u7F51 IP \u5019\u9009\uFF1A{ips}\uFF08\u53EF\u4F5C\u4E3A\u767D\u540D\u5355\u5730\u5740\uFF09",
   "logoutAll": "\u767B\u51FA\u6240\u6709\u8BBE\u5907",
@@ -1965,7 +2038,7 @@ var en2 = {
   "restartingDetail": "\u23F3 Restarting to apply (usually 10-30s) \xB7 {s}s elapsed",
   "updatedAutoDetail": "\u2705 Updated \u2014 auto-restarting in progress, refresh shortly",
   "updatedRestartDetail": "\u2705 Updated \u2014 restart dsh web to apply",
-  "updateFailed": "\u274C Failed: {err} (manual update: dsh plugin --profile web update dsh-pocket --latest -w)",
+  "updateFailed": "\u274C Failed: {err} (manual update: {cmd})",
   "versionRange": "Current v{cur} \u2192 latest v{latest}",
   "remoteAccess": "Remote access (Gitee sign-in)",
   "proxyReady": "Running \xB7 port {port}",
@@ -1973,15 +2046,24 @@ var en2 = {
   "setupUrlLabel": "Setup entry (open on this machine)",
   "copy": "Copy",
   "copied": "\u2705 Copied",
+  "copyFailed": "\u274C Copy failed (browser restriction)",
+  "copyContext": "\u{1F4CB} Copy troubleshooting context",
+  "copyContextHint": "Generates a redacted text with your goal, the architecture and the current state \u2014 paste it to an AI for help",
+  "copyContextDone": "\u2705 Context copied \u2014 paste it to an AI",
   "oauthGuideTitle": "One-time setup",
   "oauthGuide1": "\u2460 Create a Gitee OAuth app (Settings \u2192 Security \u2192 Third-party applications). Register its callback URLs (multiple allowed, exact match): http://127.0.0.1:{port}/pocket-oauth/callback (local), https://your-fixed-domain/pocket-oauth/callback (your own tunnel), optionally http://LAN-IP:{port}/pocket-oauth/callback.",
   "oauthGuide2": '\u2461 Open the setup entry above in a browser on this machine, fill in the Client ID / Secret and access origins, then click "Save & bind Gitee account".',
-  "oauthGuide3": "\u2462 Afterwards any device can sign in with the same Gitee account via an allowlisted origin (replaces the PIN).",
+  "oauthGuide3": "\u2462 Afterwards any device signs in via an allowlisted origin with the SAME Gitee account \u2014 the account that owns the OAuth app and the account you sign in with are one and the same; a single Gitee account is all you need (replaces the PIN).",
   "oauthState": "Gitee account",
   "oauthBound": "Bound: {login}",
   "oauthUnbound": "Credentials saved, account not bound yet.",
   "oauthUnboundHint": 'Open the setup entry on this machine and click "Save & bind Gitee account" to finish.',
   "accessOrigins": "Access origins (callback allowlist):",
+  "originsGroupLocal": "\u{1F4CD} Local & LAN (same network)",
+  "originsGroupLocalHint": "Scan directly when the phone is on the same Wi-Fi as this computer \u2014 no tunnel needed",
+  "originsGroupPublic": "\u{1F310} Public (self-hosted tunnel / fixed domain)",
+  "originsGroupPublicHint": "Requires your own tunnel pointing a fixed domain at http://127.0.0.1:3081; the reverse proxy must keep the original Host header",
+  "originsGroupPublicEmpty": "No public entry yet: add the fixed domain of your tunnel (https://\u2026) to the allowlist to reach this machine from outside",
   "qrHint": 'Scan, then tap "Sign in with Gitee"',
   "lanCandidatesHint": "LAN IP candidates on this machine: {ips} (usable as allowlisted origins)",
   "logoutAll": "Sign out everywhere",
@@ -2020,6 +2102,10 @@ function fmt(t, key, vars) {
   }
   return s;
 }
+function manualUpdateCmd(kind) {
+  if (kind === "source") return "git pull \u540E\u91CD\u542F dsh web";
+  return "dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w";
+}
 var styles = {
   card: { background: "var(--dsw-alias-bg-layer-1,#fff)", border: "1px solid var(--dsw-alias-border-l2,#e5e7eb)", borderRadius: 12, padding: "16px 20px", maxWidth: 480 },
   block: { borderTop: "1px solid var(--dsw-alias-border-l2,#e5e7eb)", marginTop: 16, paddingTop: 16 },
@@ -2044,6 +2130,7 @@ function PocketSettingsTab({ rpcCall, t }) {
   const [restartNotice, setRestartNotice] = (0, import_react2.useState)(false);
   const [updateInfo, setUpdateInfo] = (0, import_react2.useState)(null);
   const [isDesktop, setIsDesktop] = (0, import_react2.useState)(false);
+  const [installKind, setInstallKind] = (0, import_react2.useState)(null);
   const [now, setNow] = (0, import_react2.useState)(Date.now());
   (0, import_react2.useEffect)(() => {
     const t2 = setInterval(() => setNow(Date.now()), 1e3);
@@ -2094,13 +2181,15 @@ function PocketSettingsTab({ rpcCall, t }) {
     const check = async () => {
       try {
         const v = await call(POCKET_ENDPOINTS.version, {});
-        const meta = await (await fetch("https://registry.npmjs.org/dsh-pocket/latest", { cache: "no-store" })).json();
+        if (!alive) return;
+        if (v.installKind) setInstallKind(v.installKind);
+        const meta = await (await fetch("https://raw.githubusercontent.com/cup113/dsh-pocket-oauth/main/package.json", { cache: "no-store" })).json();
         if (!alive) return;
         const latest = typeof meta?.version === "string" ? meta.version : null;
         if (latest && v.current && compareVersions(latest, v.current) > 0) {
-          setUpdateInfo({ current: v.current, latest, updating: false, result: null });
+          setUpdateInfo({ current: v.current, latest, updating: false, result: null, installKind: v.installKind ?? null });
         } else if (v.current && v.loaded && compareVersions(v.current, v.loaded) > 0) {
-          setUpdateInfo({ current: v.current, latest: v.current, updating: false, result: "ok", updated: true });
+          setUpdateInfo({ current: v.current, latest: v.current, updating: false, result: "ok", updated: true, installKind: v.installKind ?? null });
         }
       } catch {
       }
@@ -2130,7 +2219,7 @@ function PocketSettingsTab({ rpcCall, t }) {
     }
   };
   const runUpdate = async () => {
-    setUpdateInfo((u) => ({ ...u, updating: true, result: null, startedAt: Date.now() }));
+    setUpdateInfo((u) => ({ ...u, updating: true, result: null, startedAt: Date.now(), installKind: u?.installKind ?? installKind }));
     try {
       const r = await call(POCKET_ENDPOINTS.update, {});
       setUpdateInfo((u) => ({
@@ -2241,15 +2330,63 @@ function PocketSettingsTab({ rpcCall, t }) {
     ),
     extra ?? null
   );
+  const originGroups = () => {
+    const groups = { local: [], lan: [], public: [] };
+    for (const o of status?.originQrs ?? []) {
+      (groups[o.kind ?? fallbackKind(o.origin)] ?? groups.public).push(o);
+    }
+    const card = (o) => (0, import_react2.createElement)(
+      "div",
+      { key: o.origin },
+      o.qr ? qrArea(o.qr, o.origin, t("qrHint")) : (0, import_react2.createElement)("div", { style: styles.code }, o.origin)
+    );
+    const near = [...groups.local, ...groups.lan];
+    return (0, import_react2.createElement)(
+      "div",
+      null,
+      near.length > 0 ? (0, import_react2.createElement)(
+        "div",
+        { style: { marginTop: 6 } },
+        (0, import_react2.createElement)("div", { style: { fontWeight: 600, fontSize: 12 } }, t("originsGroupLocal")),
+        (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupLocalHint")),
+        near.map(card),
+        lanCandidates.length > 0 ? (0, import_react2.createElement)("div", { style: { ...styles.muted, marginTop: 6 } }, fmt(t, "lanCandidatesHint", { ips: lanCandidates.join("\u3001") })) : null
+      ) : null,
+      (0, import_react2.createElement)(
+        "div",
+        { style: { marginTop: near.length > 0 ? 10 : 6 } },
+        (0, import_react2.createElement)("div", { style: { fontWeight: 600, fontSize: 12 } }, t("originsGroupPublic")),
+        groups.public.length > 0 ? (0, import_react2.createElement)(
+          "div",
+          null,
+          (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupPublicHint")),
+          groups.public.map(card)
+        ) : (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupPublicEmpty"))
+      )
+    );
+  };
   const proxyPort = status?.proxyPort ?? null;
   const setupUrl = proxyPort ? `http://127.0.0.1:${proxyPort}/pocket-setup` : "http://127.0.0.1:3081/pocket-setup";
   const oauth = status?.oauth ?? { configured: false, callbackOrigins: [], bound: false, boundLogin: null };
   const lanCandidates = status?.lanCandidates ?? [];
-  const copyText2 = async (text) => {
+  const copyWithToast = async (text, doneKey = "copied") => {
+    const ok = await copyText(text);
+    showToast(ok ? t(doneKey) : t("copyFailed"));
+    return ok;
+  };
+  const copyTroubleshoot = async () => {
     try {
-      await navigator.clipboard.writeText(text);
-      showToast(t("copied"));
-    } catch {
+      const [s, v] = await Promise.all([
+        call(POCKET_ENDPOINTS.status, {}),
+        call(POCKET_ENDPOINTS.version, {}).catch(() => ({}))
+      ]);
+      const md = buildTroubleshootingContext(s, {
+        version: v ?? {},
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : ""
+      });
+      await copyWithToast(md, "copyContextDone");
+    } catch (err) {
+      setError(err.message);
     }
   };
   return (0, import_react2.createElement)(
@@ -2274,7 +2411,13 @@ function PocketSettingsTab({ rpcCall, t }) {
           "a",
           { href: "https://github.com/cup113/dsh-pocket-oauth", target: "_blank", rel: "noreferrer", style: { color: "var(--dsw-alias-brand-primary,#4f6ef7)", fontSize: 12, lineHeight: 1.6, textDecoration: "underline" } },
           t("starCta")
-        )
+        ),
+        (0, import_react2.createElement)("button", {
+          type: "button",
+          title: t("copyContextHint"),
+          style: { ...styles.btn, height: 26, padding: "0 10px", fontSize: 12, marginTop: 6 },
+          onClick: copyTroubleshoot
+        }, t("copyContext"))
       )
     ),
     // 桌面端不显示更新/重启横幅（更新由 DSH Desktop 管理），也不需要额外提示
@@ -2308,7 +2451,7 @@ function PocketSettingsTab({ rpcCall, t }) {
       (0, import_react2.createElement)(
         "div",
         { style: styles.muted, marginTop: 4 },
-        updateInfo.updating ? fmt(t, "updatingDetail", { s: elapsed(updateInfo.startedAt) }) : updateInfo.restarting ? fmt(t, "restartingDetail", { s: elapsed(updateInfo.startedAt) }) : updateInfo.result === "ok" ? updateInfo.autoRestart ? t("updatedAutoDetail") : t("updatedRestartDetail") : updateInfo.result === "fail" ? fmt(t, "updateFailed", { err: errText(updateInfo.output) || t("unknownError") }) : fmt(t, "versionRange", { cur: updateInfo.current, latest: updateInfo.latest })
+        updateInfo.updating ? fmt(t, "updatingDetail", { s: elapsed(updateInfo.startedAt) }) : updateInfo.restarting ? fmt(t, "restartingDetail", { s: elapsed(updateInfo.startedAt) }) : updateInfo.result === "ok" ? updateInfo.autoRestart ? t("updatedAutoDetail") : t("updatedRestartDetail") : updateInfo.result === "fail" ? fmt(t, "updateFailed", { err: errText(updateInfo.output) || t("unknownError"), cmd: manualUpdateCmd(updateInfo.installKind ?? installKind) }) : fmt(t, "versionRange", { cur: updateInfo.current, latest: updateInfo.latest })
       )
     ) : null,
     // 远程访问（Gitee OAuth）：代理状态 + 初始化引导 + 绑定状态 + 地址二维码
@@ -2324,7 +2467,7 @@ function PocketSettingsTab({ rpcCall, t }) {
       // 初始化入口（本机）：随时可见（未配置时的核心引导；已配置时也可用来改配置/换绑）
       row(
         t("setupUrlLabel"),
-        (0, import_react2.createElement)("button", { style: { ...styles.btn, height: 26, padding: "0 10px", fontSize: 12 }, onClick: () => copyText2(setupUrl) }, t("copy")),
+        (0, import_react2.createElement)("button", { style: { ...styles.btn, height: 26, padding: "0 10px", fontSize: 12 }, onClick: () => copyWithToast(setupUrl) }, t("copy")),
         (0, import_react2.createElement)("div", { style: styles.code }, setupUrl)
       ),
       // 状态分支
@@ -2348,17 +2491,7 @@ function PocketSettingsTab({ rpcCall, t }) {
         "div",
         { style: { marginTop: 8 } },
         row(t("oauthState"), (0, import_react2.createElement)("span", { style: { fontSize: 13, fontWeight: 600, color: "var(--dsw-alias-label-primary,inherit)" } }, fmt(t, "oauthBound", { login: oauth.boundLogin ?? "\u2014" }))),
-        oauth.callbackOrigins.length > 0 ? (0, import_react2.createElement)(
-          "div",
-          null,
-          (0, import_react2.createElement)("div", { style: { ...styles.muted, margin: "8px 0 0" } }, t("accessOrigins")),
-          (status?.originQrs ?? []).map((o) => (0, import_react2.createElement)(
-            "div",
-            { key: o.origin },
-            o.qr ? qrArea(o.qr, o.origin, t("qrHint")) : (0, import_react2.createElement)("div", { style: styles.code }, o.origin)
-          ))
-        ) : null,
-        lanCandidates.length > 0 ? (0, import_react2.createElement)("div", { style: { ...styles.muted, marginTop: 8 } }, fmt(t, "lanCandidatesHint", { ips: lanCandidates.join("\u3001") })) : null,
+        oauth.callbackOrigins.length > 0 ? originGroups() : null,
         (0, import_react2.createElement)(
           "div",
           { style: { marginTop: 10 } },

@@ -91,6 +91,8 @@ grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
 
 之后重启 dsh web 即可。pnpm 会把结果 pin 在当时的 main 提交上——想跟上新提交，再跑一次上面的命令。
 
+> 设置页的「一键更新」会探测安装方式并自动选择正确动作：本地 clone 软链（`link:`）安装执行 `git pull --ff-only`，`github:` 规格安装重跑上面的 add 命令；两者成功后都会自动重启生效。
+
 ---
 
 ## 注意事项

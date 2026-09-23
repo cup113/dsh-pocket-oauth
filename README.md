@@ -45,9 +45,10 @@ DSH Pocket 就是干这个的：**只暴露一个端口，登录一次 Gitee 账
 | 🏠 本机免登录       | `127.0.0.1` / `localhost` 直连免认证（能在本机直连本来就已经上了这台机器），初始化页面也只在**本机**可打开                                                       |
 | 🧱 未初始化即全拒   | 没配置凭据/没绑定账号时，所有非本机访问一律拒绝（**fail closed**），不会出现"装完就裸奔"                                                                        |
 | 🌐 隧道自建         | 插件**不管理任何隧道**：你用 frp / Tailscale Funnel / 自建 nginx 反代 / 各类内网穿透，把**固定域名**指到 `http://127.0.0.1:3081` 即可（需要固定域名，原因见下）     |
-| 📱 地址二维码       | 设置页为每条白名单地址生成二维码，手机扫码打开后点「使用 Gitee 账号登录」                                                                                        |
+| 📱 地址二维码       | 设置页为每条白名单地址生成二维码，并按**本机 / 局域网**与**公网（自建隧道）**分成两区展示，各配使用前提说明                                                                                        |
 | 🧘 会话保持         | 登录后种 HttpOnly 会话 cookie（30 天），**长期免输**；登录状态绑定电脑上的 dsh web 进程——**重启/更新后需重新登录一次**                                          |
 | 🚪 一键登出         | 「登出所有设备」= 轮换进程级会话密钥，所有已登录设备立即失效（换手机、怀疑泄露时用）                                                                             |
+| 🧾 排障上下文       | 设置页「复制排障上下文」一键生成含使用目标、架构与认证模型、当前状态快照的文本（已脱敏），粘贴给任意 AI 即可让它接手排查                                          |
 | ⚡ 实时同步         | 流式输出走 WebSocket 全透传——**电脑上在输出，手机上同步在滚**，可双向操作；内置心跳保活（防 NAT/省电机制静默断链，断线自动重连）                                 |
 | 📱 移动端适配       | 窄屏自动变抽屉布局（移植 dsh-web-mobile，MIT）：侧栏抽屉、会话全宽、状态栏安全区、触控优化                                                                       |
 | 🧭 可选右边栏       | 手机端显示原生右边栏入口；普通手机可在设置中关闭以保持紧凑，折叠屏展开后可更方便地同时使用终端底栏和右边栏                                                       |
@@ -71,15 +72,15 @@ npm install -g @deepseek-ai/dsh     # 全局安装；验证：dsh --version
 ```
 
 ```sh
-# 1. 装本仓库（从源码软链进 profile；路径换成你 clone 下来的目录）
-git clone https://github.com/cup113/dsh-pocket-oauth.git
-dsh plugin --profile web add link:/绝对路径/dsh-pocket-oauth -w
+# 1. 安装本仓库（从 GitHub 拉取；包名是 dsh-pocket，仓库名是 dsh-pocket-oauth）
+dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w
 
 # 2. 重启 dsh web
 npx @deepseek-ai/dsh web
 ```
 
-> ⚠️ npm 上的 `dsh-pocket` 是**原版**（PIN 版，不是本仓库）。源码安装时界面上的「一键更新」指向的正是那个 npm 原版——**别点**（会把 profile 里的软链换成 npm 原版）；更新本仓库请 `git pull` 后重启 dsh web。
+> ℹ️ npm 上的 `dsh-pocket` 是**原版**（PIN 模型，不是本仓库）——**不要**用 `dsh plugin add dsh-pocket`，那装到的是原版。本仓库只从 GitHub 安装。
+> 🔄 设置页的「一键更新」会先探测安装方式再选择正确动作：`github:` 规格安装重跑一次 add（重新 pin 最新 main 提交）；本地 clone 软链（开发方式，见 [LOCAL-DEV.md](./LOCAL-DEV.md)）执行 `git pull --ff-only`。完成后自动重启生效。
 
 ### 第一步：一次性初始化（在本机，约 2 分钟）
 
@@ -93,7 +94,7 @@ npx @deepseek-ai/dsh web
 
 创建后得到 **Client ID** 与 **Client Secret**。
 
-**② 在本机浏览器打开初始化页**：`http://127.0.0.1:3081/pocket-setup`（设置页「手机访问」里也直接给了这个地址，可一键复制）。填入 Client ID / Secret 与上面的**访问地址（每行一条，即回调白名单）**，点「保存并绑定 Gitee 账号」。
+**② 在本机浏览器打开初始化页**：`http://127.0.0.1:3081/pocket-setup`（设置页「手机访问」里也直接给了这个地址，可一键复制）。填入 Client ID / Secret 与上面的**访问地址**，点「保存并绑定 Gitee 账号」。访问地址与 Gitee 里填**相同内容**即可——把 Gitee 的回调地址整条复制过来也行（结尾的 `/pocket-oauth/callback` 会自动去掉）。
 
 **③ 完成绑定**：跳到 Gitee 授权 → 回到本机页面显示「绑定成功」，你的 Gitee 账号已与本机绑定。
 
@@ -141,7 +142,7 @@ npx @deepseek-ai/dsh web
 | 重启电脑后要重新登录                                     | 会话绑定 dsh web 进程（进程级随机密钥），**这是刻意设计**：进程重启即旧会话全部失效                                                                                                                                 |
 | 隧道域名变了                                             | Gitee 应用回调地址 + 设置页白名单两处都改，然后重开初始化页保存（需重新绑定）                                                                                                           |
 | 点「重启 dsh web」后页面提示进程在后台运行                | 自重启的新进程是 detached 后台进程（不挂终端），是页内更新的标准做法；停止它：macOS/Linux `lsof -ti :3080 \| xargs kill -9`；Windows `netstat -ano \| findstr :3080` → `taskkill /PID <PID> /F` |
-| 版本停在 0.x 升不上去                                     | `^0.x` 范围不允许升到 1.x：更新用 `--latest`（`dsh plugin --profile web update dsh-pocket --latest -w`）                                                                                 |
+| 想手动更新到最新版                                        | 重新安装一次并重启：`dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w`（pnpm 会把版本 pin 到当时的 main 提交）；本地 clone 软链安装则 `git pull` 后重启 `dsh web`                                |
 
 ## 💻 DSH Desktop（桌面版）
 

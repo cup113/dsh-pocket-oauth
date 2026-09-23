@@ -149,9 +149,28 @@ test('文件浏览（issue #48）：宿主无 aionui explorer 时隐藏入口；
   assert.ok(src.includes('[data-mobile-nav="files"]'), 'Files 纳入抽屉内导航关闭');
 });
 
-test('Windows 更新 spawn（PR #54）：performUpdate 的 spawn 必须带 shell 选项', async () => {
+test('Windows 更新 spawn（PR #54）：受管子进程的 spawn 必须带 shell 选项', async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
-  const seg = src.slice(src.indexOf("spawn('dsh'"), src.indexOf('spawn(\'dsh\')') + 500);
-  assert.ok(src.includes("shell: process.platform === 'win32'"), 'spawn 带 shell: win32（npm shim ENOENT / Node22 EINVAL）');
+  const at = src.indexOf('function spawnManaged(');
+  assert.ok(at > 0, '存在统一的受管子进程封装');
+  const fn = src.slice(at, at + 700);
+  assert.ok(fn.includes("shell: process.platform === 'win32'"), 'spawnManaged 带 shell: win32（npm shim ENOENT / Node22 EINVAL）');
+  assert.ok(src.includes("spawnManaged('git'"), '源码安装（link:）更新走 git pull');
+  assert.ok(src.includes('github:cup113/dsh-pocket-oauth'), 'github: 规格安装更新重跑 add 重新 pin main');
+});
+
+test('更新机制（GitHub 化）：版本检查只打本仓库 main，不再打 npm 原版的包名', async () => {
+  // npm 上的 dsh-pocket 是**原版**（PIN 模型）。若版本检查回到 npm registry，
+  // 原版一发新版就会诱导用户点「更新」，把插件整体换成另一个应用。
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+  assert.ok(
+    src.includes('raw.githubusercontent.com/cup113/dsh-pocket-oauth/main/package.json'),
+    '版本源 = 本仓库 main 的 package.json',
+  );
+  assert.ok(!src.includes('registry.npmjs.org/dsh-pocket'), '不再拿 npm 原版的版本号做比较');
+  assert.ok(src.includes('originsGroupPublic'), '二维码分区（本机/局域网 vs 公网）已进产物');
+  assert.ok(src.includes('copyContext'), '「复制排障上下文」入口已进产物');
+  assert.ok(src.includes('execCommand'), '非安全上下文剪贴板兜底已进产物（设置页复制不再静默失败）');
 });

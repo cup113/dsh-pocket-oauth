@@ -89,10 +89,42 @@ test('service：startProxy → 状态快照（OAuth 视图 + origin 二维码 + 
     '每个白名单 origin 一条二维码记录',
   );
   assert.equal(st.originQrs[0].qr, 'data:qr;https://pocket.example.com');
+  assert.deepEqual(
+    st.originQrs.map((o) => o.kind),
+    ['public', 'local'],
+    '二维码条目带展示分组（域名=公网 / 127.0.0.1=本机）',
+  );
 
   await service.dispose();
   const after = await service.status();
   assert.equal(after.proxyRunning, false, 'dispose 后代理状态复位');
+});
+
+test('service：origin 分组 kind（本机 / 局域网 / 公网）——与代理的 Host 信任边界同一套判定', async () => {
+  const internals = stubInternals();
+  const cfg = {
+    clientId: 'cid', clientSecret: 'sec',
+    callbackOrigins: [
+      'http://127.0.0.1:3081',
+      'http://192.168.1.5:3081',
+      'http://10.0.0.7:3081',
+      'http://100.119.24.44:3081', // Tailscale CGNAT（RFC6598）→ 局域网
+      'http://mydesktop.local:3081', // mDNS → 局域网
+      'https://pocket.example.com',
+    ],
+    boundUid: '4242', boundLogin: 'alice',
+  };
+  const service = createPocketService({ dshPort: 3080, port: 3081, internals, getOAuthConfig: () => cfg });
+  const st = await service.status();
+  assert.deepEqual(st.originQrs.map((o) => [o.origin, o.kind]), [
+    ['http://127.0.0.1:3081', 'local'],
+    ['http://192.168.1.5:3081', 'lan'],
+    ['http://10.0.0.7:3081', 'lan'],
+    ['http://100.119.24.44:3081', 'lan'],
+    ['http://mydesktop.local:3081', 'lan'],
+    ['https://pocket.example.com', 'public'],
+  ], '设置页据此把「本机/局域网」与「公网（自建隧道）」分成两区');
+  await service.dispose();
 });
 
 test('service：未配置 OAuth 时状态给出安全视图（不抛错）', async () => {
@@ -150,6 +182,7 @@ test('RPC：status（含 OAuth 视图）/ 未知端点', async () => {
   assert.equal(s1.value.proxyRunning, true);
   assert.equal(s1.value.restartNotice, null, '无重启标记时 restartNotice 为 null');
   assert.equal(s1.value.oauth.boundLogin, 'alice', 'status 携带 OAuth 视图');
+  assert.equal(s1.value.originQrs[0].kind, 'public', 'RPC status 放行 origin 分组 kind');
   assert.ok(!JSON.stringify(s1.value).includes('sec'), 'status 不泄露 secret');
 
   const unknown = await conn.handler('nope', {});
@@ -270,7 +303,12 @@ test('RPC：version 返回磁盘版本 current 与启动版本 loaded', async ()
   const conn = fakeCtxConnection();
   installPocketRpc({ connection: conn }, {
     service,
-    runUpdate: { currentVersion: () => '1.0.15', loadedVersion: () => '1.0.14', perform: async () => ({ ok: true }) },
+    runUpdate: {
+      currentVersion: () => '1.0.15',
+      loadedVersion: () => '1.0.14',
+      perform: async () => ({ ok: true }),
+      installKind: () => 'source',
+    },
     log: { error() {}, warn() {} },
   });
 
@@ -278,6 +316,7 @@ test('RPC：version 返回磁盘版本 current 与启动版本 loaded', async ()
   assert.equal(v.ok, true);
   assert.equal(v.value.current, '1.0.15', 'current 是磁盘实时版本');
   assert.equal(v.value.loaded, '1.0.14', 'loaded 是进程启动版本');
+  assert.equal(v.value.installKind, 'source', 'version 携带安装类型（更新失败提示据此给对应手动命令）');
 
   await service.dispose();
 });

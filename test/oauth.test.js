@@ -56,11 +56,39 @@ test('normalizeOrigin：归一化与拒绝', () => {
   assert.deepEqual(normalizeOrigin('http://127.0.0.1:3081/'), { origin: 'http://127.0.0.1:3081' });
   assert.deepEqual(normalizeOrigin('  http://192.168.1.5:3081  '), { origin: 'http://192.168.1.5:3081' });
   assert.ok(normalizeOrigin('ftp://x.com').error, '非 http(s) 拒绝');
-  assert.ok(normalizeOrigin('https://x.com/path').error, '带 path 拒绝');
+  assert.ok(normalizeOrigin('https://x.com/path').error, '其它 path 拒绝');
   assert.ok(normalizeOrigin('https://x.com?q=1').error, '带 query 拒绝');
   assert.ok(normalizeOrigin('https://u:p@x.com').error, '带凭据拒绝');
   assert.ok(normalizeOrigin('not a url').error, '非 URL 拒绝');
   assert.ok(normalizeOrigin('').error, '空拒绝');
+});
+
+test('normalizeOrigin：接受从 Gitee 整条复制的完整回调地址（自动剥掉回调路径）', () => {
+  // 用户最常见的操作：把 Gitee 应用的「应用回调地址」整条复制进白名单 textarea。
+  // 不该为此报错——归一化后与纯 origin 等价，同一地址两种写法会自动去重。
+  assert.deepEqual(
+    normalizeOrigin('http://127.0.0.1:3081/pocket-oauth/callback'),
+    { origin: 'http://127.0.0.1:3081' },
+    '本机完整回调地址',
+  );
+  assert.deepEqual(
+    normalizeOrigin('https://Pocket.Example.com/pocket-oauth/callback'),
+    { origin: 'https://pocket.example.com' },
+    '隧道域名完整回调地址（host 大小写归一）',
+  );
+  assert.deepEqual(
+    normalizeOrigin('https://pocket.example.com/pocket-oauth/callback/'),
+    { origin: 'https://pocket.example.com' },
+    '尾部斜杠容错',
+  );
+  assert.deepEqual(
+    normalizeOrigin('https://pocket.example.com/Pocket-OAuth/Callback'),
+    { origin: 'https://pocket.example.com' },
+    '路径大小写不敏感',
+  );
+  assert.ok(normalizeOrigin('https://x.com/pocket-oauth/callback/extra').error, '回调路径后还有内容 → 拒绝');
+  assert.ok(normalizeOrigin('https://x.com/pocket-oauth/other').error, '别的 pocket 路径 → 拒绝');
+  assert.ok(normalizeOrigin('https://x.com/pocket-oauth/callback?code=1').error, '带 query → 拒绝');
 });
 
 test('parseOrigins：多行解析、去重、上限、空拒绝', () => {
@@ -68,6 +96,11 @@ test('parseOrigins：多行解析、去重、上限、空拒绝', () => {
     origins: ['http://127.0.0.1:3081', 'https://a.com'],
   }, '换行分隔 + 去重');
   assert.deepEqual(parseOrigins(['https://a.com', '']), { origins: ['https://a.com'] }, '数组输入，空行跳过');
+  assert.deepEqual(
+    parseOrigins('https://a.com/pocket-oauth/callback\nhttps://a.com\nhttp://127.0.0.1:3081/pocket-oauth/callback'),
+    { origins: ['https://a.com', 'http://127.0.0.1:3081'] },
+    '纯 origin 与完整回调地址混填 → 归一化后去重为一条',
+  );
   assert.ok(parseOrigins('').error, '空列表拒绝');
   assert.ok(parseOrigins('bad').error, '非法条目整体拒绝');
   assert.ok(parseOrigins(Array.from({ length: 11 }, (_, i) => `https://h${i}.com`).join('\n')).error, '超过 10 条拒绝');

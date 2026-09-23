@@ -8,7 +8,7 @@
 
 import { createElement as h, useEffect, useRef, useState } from 'react';
 
-import { POCKET_RPC_CHANNEL, POCKET_ENDPOINTS, MOBILE_RIGHTBAR_ATTRIBUTE, MOBILE_RIGHTBAR_EVENT, redactStatus, compareVersions } from './api.js';
+import { POCKET_RPC_CHANNEL, POCKET_ENDPOINTS, MOBILE_RIGHTBAR_ATTRIBUTE, MOBILE_RIGHTBAR_EVENT, redactStatus, compareVersions, fallbackKind, copyText, buildTroubleshootingContext } from './api.js';
 import { mobileApply } from './mobile/mobile-apply.tsx';
 import { NS as POCKET_NS, zh as POCKET_ZH, en as POCKET_EN } from './pocket-locales.js';
 
@@ -25,6 +25,13 @@ function fmt(t, key, vars) {
     }
   }
   return s;
+}
+
+// 更新失败时的手动更新指引：按安装方式分支（与 lib/index.js performManagedUpdate 对应）。
+// source（link: 到本地 clone）→ git pull；github: 规格安装 → 重跑 add 重新 pin main 提交。
+function manualUpdateCmd(kind) {
+  if (kind === 'source') return 'git pull 后重启 dsh web';
+  return 'dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w';
 }
 
 // 官方 DeepSeek Harness 设计系统（dsh-client-ui-theme design-platform.css）：
@@ -56,6 +63,7 @@ function PocketSettingsTab({ rpcCall, t }) {
   const [restartNotice, setRestartNotice] = useState(false); // 重启后提示
   const [updateInfo, setUpdateInfo] = useState(null); // { current, latest, updating, result, startedAt } | null
   const [isDesktop, setIsDesktop] = useState(false); // DSH Desktop（Electron）环境：更新/重启由桌面版管理
+  const [installKind, setInstallKind] = useState(null); // source（git clone）/ git（github: 规格）/ unknown
   const [now, setNow] = useState(Date.now()); // 每秒 tick，驱动倒计时
 
   // 进行中操作的「已等待 X 秒」倒计时
@@ -101,11 +109,14 @@ function PocketSettingsTab({ rpcCall, t }) {
     try { sessionStorage.removeItem('dshp-auto-reloaded'); } catch { /* 忽略 */ }
   }, []);
 
-  // 版本检测：host 当前版本 vs npm registry latest（registry 带 CORS *）
-  // 两种情况显示横幅：① 有新版可更新；② 磁盘已更新但进程还是旧代码（重启生效）
-  // cache: 'no-store' —— registry 响应带缓存头，浏览器会缓存旧版本号导致「小版本不提示」
-  // 周期重查（每 5 分钟）：npm registry 的 /latest 走 CDN 边缘缓存，刚发布后打开页面
-  // 可能拿到旧版本号——周期性重查让更新提示在缓存刷新后自动出现，不用重开页面。
+  // 版本检测：host 当前版本 vs 本仓库 main 的 package.json（registry 带 CORS *）
+  // 数据源必须是本 fork 自己的仓库：npm 上的 dsh-pocket 是**原版**（PIN 模型），
+  // 拿它的版本号比较会诱导用户「更新」成另一个应用（README 曾专门警告）。
+  // 本 fork 无 npm 发布、无 release tag，main 的 package.json.version 即版本真源，
+  // 也与 github: 规格安装「pin 到 main 提交」的更新模型天然一致。
+  // cache: 'no-store' —— raw 响应带缓存头，浏览器会缓存旧版本号导致「小版本不提示」
+  // 周期重查（每 5 分钟）：raw 边缘缓存刚 push 后可能仍是旧版本号——周期性重查让
+  // 更新提示在缓存刷新后自动出现，不用重开页面。
   // 桌面端（isDesktop）：更新/重启由 DSH Desktop 管理，这里不做版本检测、不显示更新横幅
   useEffect(() => {
     if (isDesktop) return;
@@ -113,14 +124,16 @@ function PocketSettingsTab({ rpcCall, t }) {
     const check = async () => {
       try {
         const v = await call(POCKET_ENDPOINTS.version, {});
-        const meta = await (await fetch('https://registry.npmjs.org/dsh-pocket/latest', { cache: 'no-store' })).json();
+        if (!alive) return;
+        if (v.installKind) setInstallKind(v.installKind);
+        const meta = await (await fetch('https://raw.githubusercontent.com/cup113/dsh-pocket-oauth/main/package.json', { cache: 'no-store' })).json();
         if (!alive) return;
         const latest = typeof meta?.version === 'string' ? meta.version : null;
         if (latest && v.current && compareVersions(latest, v.current) > 0) {
-          setUpdateInfo({ current: v.current, latest, updating: false, result: null });
+          setUpdateInfo({ current: v.current, latest, updating: false, result: null, installKind: v.installKind ?? null });
         } else if (v.current && v.loaded && compareVersions(v.current, v.loaded) > 0) {
           // 已更新未重启：显示「已更新，重启生效」+ 重启按钮
-          setUpdateInfo({ current: v.current, latest: v.current, updating: false, result: 'ok', updated: true });
+          setUpdateInfo({ current: v.current, latest: v.current, updating: false, result: 'ok', updated: true, installKind: v.installKind ?? null });
         }
       } catch { /* 网络失败静默 */ }
     };
@@ -150,9 +163,9 @@ function PocketSettingsTab({ rpcCall, t }) {
     }
   };
 
-  // 一键更新：调宿主 dsh plugin update（成功后宿主自动重启生效，用户只点一次）
+  // 一键更新：按安装方式分发（source→git pull；github: 规格→重跑 add；失败给对应手动命令）
   const runUpdate = async () => {
-    setUpdateInfo((u) => ({ ...u, updating: true, result: null, startedAt: Date.now() }));
+    setUpdateInfo((u) => ({ ...u, updating: true, result: null, startedAt: Date.now(), installKind: u?.installKind ?? installKind }));
     try {
       const r = await call(POCKET_ENDPOINTS.update, {});
       setUpdateInfo((u) => ({
@@ -266,13 +279,63 @@ function PocketSettingsTab({ rpcCall, t }) {
     h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
       h('span', { style: { fontSize: 13 } }, label), control), extra ?? null);
 
+  // 访问地址分区：本机/局域网（同一网络，无需隧道）与公网（自建隧道/固定域名）——
+  // 两类地址的使用前提完全不同，分开呈现并各配一句针对性提示；kind 缺失按 host 兜底。
+  const originGroups = () => {
+    const groups = { local: [], lan: [], public: [] };
+    for (const o of status?.originQrs ?? []) {
+      (groups[o.kind ?? fallbackKind(o.origin)] ?? groups.public).push(o);
+    }
+    const card = (o) => h('div', { key: o.origin },
+      o.qr ? qrArea(o.qr, o.origin, t('qrHint')) : h('div', { style: styles.code }, o.origin));
+    const near = [...groups.local, ...groups.lan];
+    return h('div', null,
+      near.length > 0 ? h('div', { style: { marginTop: 6 } },
+        h('div', { style: { fontWeight: 600, fontSize: 12 } }, t('originsGroupLocal')),
+        h('div', { style: styles.muted }, t('originsGroupLocalHint')),
+        near.map(card),
+        lanCandidates.length > 0
+          ? h('div', { style: { ...styles.muted, marginTop: 6 } }, fmt(t, 'lanCandidatesHint', { ips: lanCandidates.join('、') }))
+          : null,
+      ) : null,
+      h('div', { style: { marginTop: near.length > 0 ? 10 : 6 } },
+        h('div', { style: { fontWeight: 600, fontSize: 12 } }, t('originsGroupPublic')),
+        groups.public.length > 0
+          ? h('div', null,
+              h('div', { style: styles.muted }, t('originsGroupPublicHint')),
+              groups.public.map(card))
+          : h('div', { style: styles.muted }, t('originsGroupPublicEmpty'))));
+  };
+
   // 视图字段
   const proxyPort = status?.proxyPort ?? null;
   const setupUrl = proxyPort ? `http://127.0.0.1:${proxyPort}/pocket-setup` : 'http://127.0.0.1:3081/pocket-setup';
   const oauth = status?.oauth ?? { configured: false, callbackOrigins: [], bound: false, boundLogin: null };
   const lanCandidates = status?.lanCandidates ?? [];
-  const copyText = async (text) => {
-    try { await navigator.clipboard.writeText(text); showToast(t('copied')); } catch { /* 剪贴板不可用（非安全上下文） */ }
+  // 复制到剪贴板并 toast 反馈（共享 copyText：http://IP 非安全上下文走 execCommand 兜底，
+  // 修复此前手机经局域网地址打开设置页时点「复制」静默失败的问题）
+  const copyWithToast = async (text, doneKey = 'copied') => {
+    const ok = await copyText(text);
+    showToast(ok ? t(doneKey) : t('copyFailed'));
+    return ok;
+  };
+
+  // 一键复制排障上下文：取最新 status/version 快照 → 组 markdown → 复制。
+  // 供用户粘贴给外部 AI 接管排障（目标 + 架构/认证模型 + 状态 + 常见坑，已脱敏）。
+  const copyTroubleshoot = async () => {
+    try {
+      const [s, v] = await Promise.all([
+        call(POCKET_ENDPOINTS.status, {}),
+        call(POCKET_ENDPOINTS.version, {}).catch(() => ({})),
+      ]);
+      const md = buildTroubleshootingContext(s, {
+        version: v ?? {},
+        ua: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      });
+      await copyWithToast(md, 'copyContextDone');
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   return h('div', { style: styles.card },
@@ -287,6 +350,12 @@ function PocketSettingsTab({ rpcCall, t }) {
         h('div', { style: { whiteSpace: 'nowrap', marginTop: 2 } }, t('starAsk')),
         h('a', { href: 'https://github.com/cup113/dsh-pocket-oauth', target: '_blank', rel: 'noreferrer', style: { color: 'var(--dsw-alias-brand-primary,#4f6ef7)', fontSize: 12, lineHeight: 1.6, textDecoration: 'underline' } },
           t('starCta')),
+        h('button', {
+          type: 'button',
+          title: t('copyContextHint'),
+          style: { ...styles.btn, height: 26, padding: '0 10px', fontSize: 12, marginTop: 6 },
+          onClick: copyTroubleshoot,
+        }, t('copyContext')),
       ),
     ),
 
@@ -325,7 +394,7 @@ function PocketSettingsTab({ rpcCall, t }) {
         : updateInfo.result === 'ok'
           ? (updateInfo.autoRestart ? t('updatedAutoDetail')
             : t('updatedRestartDetail'))
-        : updateInfo.result === 'fail' ? fmt(t, 'updateFailed', { err: errText(updateInfo.output) || t('unknownError') })
+        : updateInfo.result === 'fail' ? fmt(t, 'updateFailed', { err: errText(updateInfo.output) || t('unknownError'), cmd: manualUpdateCmd(updateInfo.installKind ?? installKind) })
         : fmt(t, 'versionRange', { cur: updateInfo.current, latest: updateInfo.latest })),
     ) : null,
 
@@ -340,7 +409,7 @@ function PocketSettingsTab({ rpcCall, t }) {
 
       // 初始化入口（本机）：随时可见（未配置时的核心引导；已配置时也可用来改配置/换绑）
       row(t('setupUrlLabel'),
-        h('button', { style: { ...styles.btn, height: 26, padding: '0 10px', fontSize: 12 }, onClick: () => copyText(setupUrl) }, t('copy')),
+        h('button', { style: { ...styles.btn, height: 26, padding: '0 10px', fontSize: 12 }, onClick: () => copyWithToast(setupUrl) }, t('copy')),
         h('div', { style: styles.code }, setupUrl)),
 
       // 状态分支
@@ -360,13 +429,7 @@ function PocketSettingsTab({ rpcCall, t }) {
           : h('div', { style: { marginTop: 8 } },
               row(t('oauthState'), h('span', { style: { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary,inherit)' } }, fmt(t, 'oauthBound', { login: oauth.boundLogin ?? '—' }))),
               oauth.callbackOrigins.length > 0
-                ? h('div', null,
-                    h('div', { style: { ...styles.muted, margin: '8px 0 0' } }, t('accessOrigins')),
-                    (status?.originQrs ?? []).map((o) => h('div', { key: o.origin },
-                      o.qr ? qrArea(o.qr, o.origin, t('qrHint')) : h('div', { style: styles.code }, o.origin))))
-                : null,
-              lanCandidates.length > 0
-                ? h('div', { style: { ...styles.muted, marginTop: 8 } }, fmt(t, 'lanCandidatesHint', { ips: lanCandidates.join('、') }))
+                ? originGroups()
                 : null,
               h('div', { style: { marginTop: 10 } },
                 h('button', { style: { ...styles.btn, height: 28, padding: '0 12px', fontSize: 12 }, disabled: busy, onClick: () => openConfirm(t('logoutAllTitle'), t('logoutAllBody'), t('logoutAll'), false, rotateSession) }, t('logoutAll')),
