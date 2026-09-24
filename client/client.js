@@ -2128,9 +2128,17 @@ var styles = {
   primary: { font: "inherit", cursor: "pointer", border: "none", background: "var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary,#4f6ef7))", color: "var(--dsw-alias-label-primary-foreground, #fff)", height: 36, padding: "0 16px", borderRadius: 999, fontSize: 13, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center" },
   // 次级按钮：官方 outline/ghost 胶囊形
   btn: { font: "inherit", cursor: "pointer", border: "1px solid var(--dsw-alias-button-ghost-active-border, var(--dsw-alias-border-l2,#d1d5db))", background: "var(--dsw-alias-bg-layer-1,#fff)", color: "var(--dsw-alias-label-primary,inherit)", height: 36, padding: "0 16px", borderRadius: 999, fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center" },
-  qr: { width: 220, height: 220, borderRadius: 10, border: "1px solid var(--dsw-alias-border-l2,#e5e7eb)", margin: "8px 0" },
+  qr: { width: 150, height: 150, borderRadius: 10, border: "1px solid var(--dsw-alias-border-l2,#e5e7eb)", margin: "8px 0" },
   warn: { color: "var(--dsw-alias-state-warn-primary,#b45309)", fontSize: 12, lineHeight: 1.5 }
 };
+var QR_GRID_CSS = `
+.dshp-qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; align-items: start; margin-top: 8px; }
+.dshp-qr-grid > * { min-width: 0; }
+.dshp-qr-grid .dshp-qr-box { margin: 0; }
+@media (max-width: 400px) {
+  .dshp-qr-grid { grid-template-columns: 1fr; }
+}
+`;
 function applyMobileRightbarSetting(enabled) {
   const on = enabled !== false;
   document.body?.setAttribute(MOBILE_RIGHTBAR_ATTRIBUTE, on ? "on" : "off");
@@ -2327,7 +2335,7 @@ function PocketSettingsTab({ rpcCall, t }) {
   }, (0, import_react2.createElement)("span", { style: { position: "absolute", top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff" } }));
   const qrArea = (src, url, hint) => (0, import_react2.createElement)(
     "div",
-    { style: { background: "var(--dsw-alias-bg-layer-2,#f3f4f6)", borderRadius: 10, padding: "10px 12px", textAlign: "center", margin: "10px 0" } },
+    { className: "dshp-qr-box", style: { background: "var(--dsw-alias-bg-layer-2,#f3f4f6)", borderRadius: 10, padding: "10px 12px", textAlign: "center", margin: 0 } },
     (0, import_react2.createElement)("img", { src, alt: "QR", style: styles.qr }),
     (0, import_react2.createElement)("div", { style: styles.code }, url),
     (0, import_react2.createElement)("div", { style: styles.muted }, hint)
@@ -2353,6 +2361,7 @@ function PocketSettingsTab({ rpcCall, t }) {
       { key: o.origin },
       o.qr ? qrArea(o.qr, o.origin, fmt(t, "qrHint", { provider: pLabel })) : (0, import_react2.createElement)("div", { style: styles.code }, o.origin)
     );
+    const grid = (list) => (0, import_react2.createElement)("div", { className: "dshp-qr-grid" }, list.map(card));
     const near = [...groups.local, ...groups.lan];
     return (0, import_react2.createElement)(
       "div",
@@ -2362,7 +2371,7 @@ function PocketSettingsTab({ rpcCall, t }) {
         { style: { marginTop: 6 } },
         (0, import_react2.createElement)("div", { style: { fontWeight: 600, fontSize: 12 } }, t("originsGroupLocal")),
         (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupLocalHint")),
-        near.map(card),
+        grid(near),
         lanCandidates.length > 0 ? (0, import_react2.createElement)("div", { style: { ...styles.muted, marginTop: 6 } }, fmt(t, "lanCandidatesHint", { ips: lanCandidates.join("\u3001") })) : null
       ) : null,
       (0, import_react2.createElement)(
@@ -2373,7 +2382,7 @@ function PocketSettingsTab({ rpcCall, t }) {
           "div",
           null,
           (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupPublicHint")),
-          groups.public.map(card)
+          grid(groups.public)
         ) : (0, import_react2.createElement)("div", { style: styles.muted }, t("originsGroupPublicEmpty"))
       )
     );
@@ -2406,6 +2415,8 @@ function PocketSettingsTab({ rpcCall, t }) {
   return (0, import_react2.createElement)(
     "div",
     { style: styles.card },
+    // 二维码网格样式（触发时才注入，避免空跑一次）
+    (0, import_react2.createElement)("style", null, QR_GRID_CSS),
     (0, import_react2.createElement)(
       "div",
       { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
