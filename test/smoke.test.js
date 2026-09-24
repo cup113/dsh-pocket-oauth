@@ -174,3 +174,19 @@ test('更新机制（GitHub 化）：版本检查只打本仓库 main，不再�
   assert.ok(src.includes('copyContext'), '「复制排障上下文」入口已进产物');
   assert.ok(src.includes('execCommand'), '非安全上下文剪贴板兜底已进产物（设置页复制不再静默失败）');
 });
+
+test('二维码并排（多地址布局）：同分区内走响应式网格，窄屏回落单列', async () => {
+  // 多条白名单地址（本机 + 局域网 + 公网）曾纵向堆叠成三张 220px 大卡，一屏放不下。
+  // 现在同一分区内并排：网格靠 CSS 类实现（auto-fill 自动换行），窄屏单列。
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('dshp-qr-grid'), '网格类名已进产物（先跑 npm run build:client）');
+  assert.ok(
+    /repeat\(auto-fill,\s*minmax\(176px,\s*1fr\)\)/.test(src),
+    '同分区内自动并排：auto-fill + minmax 决定每行放几张',
+  );
+  assert.ok(src.includes('max-width: 400px'), '窄屏（手机）媒体查询回落单列，不挤压二维码');
+  assert.ok(src.includes('dshp-qr-box'), '单卡外边距归零，间距交给网格 gap（否则并排会各带 10px 外边距）');
+  // 尺寸收缩到 150px：480px 宽的设置卡才放得下两张码
+  assert.ok(/width:\s*150,\s*height:\s*150/.test(src), '二维码缩到 150px（保 220px 时两列在 480px 卡里放不下）');
+});

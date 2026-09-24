@@ -51,9 +51,21 @@ const styles = {
   primary: { font: 'inherit', cursor: 'pointer', border: 'none', background: 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary,#4f6ef7))', color: 'var(--dsw-alias-label-primary-foreground, #fff)', height: 36, padding: '0 16px', borderRadius: 999, fontSize: 13, fontWeight: 500, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
   // 次级按钮：官方 outline/ghost 胶囊形
   btn: { font: 'inherit', cursor: 'pointer', border: '1px solid var(--dsw-alias-button-ghost-active-border, var(--dsw-alias-border-l2,#d1d5db))', background: 'var(--dsw-alias-bg-layer-1,#fff)', color: 'var(--dsw-alias-label-primary,inherit)', height: 36, padding: '0 16px', borderRadius: 999, fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
-  qr: { width: 220, height: 220, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2,#e5e7eb)', margin: '8px 0' },
+  qr: { width: 150, height: 150, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2,#e5e7eb)', margin: '8px 0' },
   warn: { color: 'var(--dsw-alias-state-warn-primary,#b45309)', fontSize: 12, lineHeight: 1.5 },
 };
+
+// 二维码并排网格：同一分区内多张码横向排开、放不下自动换行。
+// 用 CSS 类而非内联样式——换行点必须靠媒体查询表达，而 React 的 style 对象写不了 @media：
+// 窄屏（手机）每张码占满一行，宽于 400px 时两列并排。? 选择器保证只插一次。
+const QR_GRID_CSS = `
+.dshp-qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; align-items: start; margin-top: 8px; }
+.dshp-qr-grid > * { min-width: 0; }
+.dshp-qr-grid .dshp-qr-box { margin: 0; }
+@media (max-width: 400px) {
+  .dshp-qr-grid { grid-template-columns: 1fr; }
+}
+`;
 
 function applyMobileRightbarSetting(enabled) {
   const on = enabled !== false;
@@ -274,8 +286,8 @@ function PocketSettingsTab({ rpcCall, t }) {
     style: { flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: 'none', padding: 0, position: 'relative', cursor: 'pointer', font: 'inherit', background: on ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary,#4f6ef7))' : 'var(--dsw-alias-border-l2,#d1d5db)' },
     onClick,
   }, h('span', { style: { position: 'absolute', top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff' } }));
-  // 卡片内主内容：二维码 + 地址 + 提示
-  const qrArea = (src, url, hint) => h('div', { style: { background: 'var(--dsw-alias-bg-layer-2,#f3f4f6)', borderRadius: 10, padding: '10px 12px', textAlign: 'center', margin: '10px 0' } },
+  // 卡片内主内容：二维码 + 地址 + 提示（外边距交给网格的 gap，故归零）
+  const qrArea = (src, url, hint) => h('div', { className: 'dshp-qr-box', style: { background: 'var(--dsw-alias-bg-layer-2,#f3f4f6)', borderRadius: 10, padding: '10px 12px', textAlign: 'center', margin: 0 } },
     h('img', { src, alt: 'QR', style: styles.qr }),
     h('div', { style: styles.code }, url),
     h('div', { style: styles.muted }, hint));
@@ -286,6 +298,7 @@ function PocketSettingsTab({ rpcCall, t }) {
 
   // 访问地址分区：本机/局域网（同一网络，无需隧道）与公网（自建隧道/固定域名）——
   // 两类地址的使用前提完全不同，分开呈现并各配一句针对性提示；kind 缺失按 host 兜底。
+  // 分区内多张二维码走响应式网格并排（见 QR_GRID_CSS），分区之间不混排。
   const originGroups = () => {
     const groups = { local: [], lan: [], public: [] };
     for (const o of status?.originQrs ?? []) {
@@ -293,12 +306,14 @@ function PocketSettingsTab({ rpcCall, t }) {
     }
     const card = (o) => h('div', { key: o.origin },
       o.qr ? qrArea(o.qr, o.origin, fmt(t, 'qrHint', { provider: pLabel })) : h('div', { style: styles.code }, o.origin));
+    // 分区内容统一包一层网格：单张码时自然占满整行，行为与旧的纵向卡片一致
+    const grid = (list) => h('div', { className: 'dshp-qr-grid' }, list.map(card));
     const near = [...groups.local, ...groups.lan];
     return h('div', null,
       near.length > 0 ? h('div', { style: { marginTop: 6 } },
         h('div', { style: { fontWeight: 600, fontSize: 12 } }, t('originsGroupLocal')),
         h('div', { style: styles.muted }, t('originsGroupLocalHint')),
-        near.map(card),
+        grid(near),
         lanCandidates.length > 0
           ? h('div', { style: { ...styles.muted, marginTop: 6 } }, fmt(t, 'lanCandidatesHint', { ips: lanCandidates.join('、') }))
           : null,
@@ -308,7 +323,7 @@ function PocketSettingsTab({ rpcCall, t }) {
         groups.public.length > 0
           ? h('div', null,
               h('div', { style: styles.muted }, t('originsGroupPublicHint')),
-              groups.public.map(card))
+              grid(groups.public))
           : h('div', { style: styles.muted }, t('originsGroupPublicEmpty'))));
   };
 
@@ -346,6 +361,8 @@ function PocketSettingsTab({ rpcCall, t }) {
   };
 
   return h('div', { style: styles.card },
+    // 二维码网格样式（触发时才注入，避免空跑一次）
+    h('style', null, QR_GRID_CSS),
     h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
       h('div', null,
         h('strong', null, t('title')),
