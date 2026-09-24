@@ -34,6 +34,11 @@ function manualUpdateCmd(kind) {
   return 'dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w';
 }
 
+/** 鉴权方展示名（与 lib/oauth.mjs normalizeProvider + label 一致）。 */
+function providerLabel(provider) {
+  return provider === 'github' ? 'GitHub' : 'Gitee';
+}
+
 // 官方 DeepSeek Harness 设计系统（dsh-client-ui-theme design-platform.css）：
 // 按钮 md=36px 胶囊形 / sm=28px；品牌色 --dsw-alias-brand-primary；
 // hover 走 --dsw-alias-button-*-hover；间距 4px 栅格；正文 13px。
@@ -287,7 +292,7 @@ function PocketSettingsTab({ rpcCall, t }) {
       (groups[o.kind ?? fallbackKind(o.origin)] ?? groups.public).push(o);
     }
     const card = (o) => h('div', { key: o.origin },
-      o.qr ? qrArea(o.qr, o.origin, t('qrHint')) : h('div', { style: styles.code }, o.origin));
+      o.qr ? qrArea(o.qr, o.origin, fmt(t, 'qrHint', { provider: pLabel })) : h('div', { style: styles.code }, o.origin));
     const near = [...groups.local, ...groups.lan];
     return h('div', null,
       near.length > 0 ? h('div', { style: { marginTop: 6 } },
@@ -310,7 +315,9 @@ function PocketSettingsTab({ rpcCall, t }) {
   // 视图字段
   const proxyPort = status?.proxyPort ?? null;
   const setupUrl = proxyPort ? `http://127.0.0.1:${proxyPort}/pocket-setup` : 'http://127.0.0.1:3081/pocket-setup';
-  const oauth = status?.oauth ?? { configured: false, callbackOrigins: [], bound: false, boundLogin: null };
+  const oauth = status?.oauth ?? { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null };
+  // 当前鉴权方（Gitee / GitHub）：设置页文案与状态行据此显示
+  const pLabel = providerLabel(oauth.provider);
   const lanCandidates = status?.lanCandidates ?? [];
   // 复制到剪贴板并 toast 反馈（共享 copyText：http://IP 非安全上下文走 execCommand 兜底，
   // 修复此前手机经局域网地址打开设置页时点「复制」静默失败的问题）
@@ -414,20 +421,21 @@ function PocketSettingsTab({ rpcCall, t }) {
 
       // 状态分支
       !oauth.configured
-        // ① 未初始化：三步引导
+        // ① 未初始化：三步引导（鉴权方二选一 → 国内/海外两条路径并列）
         ? h('div', { style: { marginTop: 8, fontSize: 12, lineHeight: 1.8, color: 'var(--dsw-alias-label-secondary,#6b7280)', background: 'var(--dsw-alias-bg-layer-2,#f3f4f6)', borderRadius: 10, padding: '10px 12px' } },
             h('div', { style: { fontWeight: 600, marginBottom: 4, color: 'var(--dsw-alias-label-primary,inherit)' } }, t('oauthGuideTitle')),
-            fmt(t, 'oauthGuide1', { port: proxyPort ?? 3081 }),
-            h('div', null, t('oauthGuide2')),
+            fmt(t, 'oauthGuide1Gitee', { port: proxyPort ?? 3081 }),
+            h('div', { style: { marginTop: 6 } }, fmt(t, 'oauthGuide1Github', { port: proxyPort ?? 3081 })),
+            h('div', { style: { marginTop: 6 } }, t('oauthGuide2')),
             h('div', null, t('oauthGuide3')),
             h('div', { style: { ...styles.warn, marginTop: 6 } }, t('securityNote')))
         : !oauth.bound
-          // ② 已存凭据未绑定：去 setup 完成绑定
+          // ② 已存凭据未绑定：去 setup 完成绑定（文案按当前鉴权方）
           ? h('div', { style: { marginTop: 8, fontSize: 12, lineHeight: 1.7, color: 'var(--dsw-alias-state-warn-primary,#b45309)' } },
               t('oauthUnbound'), h('br'), null, ' ', t('oauthUnboundHint'))
-          // ③ 已绑定：账号 + 地址二维码 + 管理按钮
+          // ③ 已绑定：当前鉴权方 + 账号 + 地址二维码 + 管理按钮
           : h('div', { style: { marginTop: 8 } },
-              row(t('oauthState'), h('span', { style: { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary,inherit)' } }, fmt(t, 'oauthBound', { login: oauth.boundLogin ?? '—' }))),
+              row(fmt(t, 'oauthState', { provider: pLabel }), h('span', { style: { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary,inherit)' } }, fmt(t, 'oauthBound', { login: oauth.boundLogin ?? '—' }))),
               oauth.callbackOrigins.length > 0
                 ? originGroups()
                 : null,

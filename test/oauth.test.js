@@ -1,10 +1,12 @@
-// dsh-pocket Gitee OAuth 认证测试（v3：代替 PIN）
+// dsh-pocket OAuth（Gitee / GitHub）认证测试（v3：代替 PIN）
 //
 // 覆盖：
-//   - lib/oauth.mjs 单元：state 存储、origin 解析、会话 cookie 派生、配置落盘（0o600）、
-//     exchangeCodeForUser（mock fetch，成功/失败分支）
+//   - lib/oauth.mjs 单元：provider 表、state 存储（含 provider）、origin 解析、
+//     会话 cookie 派生、配置落盘（0o600 + provider 兼容）、
+//     exchangeCodeForUser（gitee query 风格 / github bearer 风格、成功/失败分支）
 //   - lib/proxy.mjs 集成：认证门（loopback 免认证 / 未配置 fail closed / 未绑定 / 401）、
-//     登录全流程（start → gitee → callback 种 cookie → 放行）、账号不匹配拒绝、
+//     登录全流程（start → 鉴权方 → callback 种 cookie → 放行）、账号不匹配拒绝、
+//     跨 provider 同 uid 拒绝、provider 由 setup 选择并落盘、登录页文案按 provider、
 //     state 单次使用、白名单外 origin 拒绝、setup 页仅本机、绑定流程、登出、
 //     会话密钥轮换（登出所有设备）、WS 握手校验
 
@@ -22,6 +24,10 @@ import {
   createStateStore,
   parseOrigins,
   normalizeOrigin,
+  normalizeProvider,
+  providerInfo,
+  providerAuthorizeUrl,
+  OAUTH_PROVIDERS,
   sessionCookieValue,
   readOAuthConfig,
   writeOAuthConfig,
@@ -33,19 +39,73 @@ import {
 } from '../lib/oauth.mjs';
 import { createPocketProxy } from '../lib/proxy.mjs';
 
+// ---------- 单元：provider 表 ----------
+
+test('OAUTH_PROVIDERS：两家端点/取用户风格/scope 与真实契约一致且冻结', () => {
+  assert.deepEqual(Object.keys(OAUTH_PROVIDERS).sort(), ['gitee', 'github']);
+  assert.ok(Object.isFrozen(OAUTH_PROVIDERS) && Object.isFrozen(OAUTH_PROVIDERS.github));
+
+  const g = providerInfo('gitee');
+  assert.equal(g.base, 'https://gitee.com');
+  assert.equal(g.apiBase, null, 'Gitee 用户 API 与 web 同域');
+  assert.equal(g.authorizePath, '/oauth/authorize');
+  assert.equal(g.tokenPath, '/oauth/token');
+  assert.equal(g.userPath, '/api/v5/user');
+  assert.equal(g.userAuthStyle, 'query');
+  assert.equal(g.scope, 'user_info');
+  assert.deepEqual(g.tokenHeaders, {}, 'Gitee 换票不需要额外头');
+
+  const h = providerInfo('github');
+  assert.equal(h.base, 'https://github.com');
+  assert.equal(h.apiBase, 'https://api.github.com', 'GitHub 用户 API 异域');
+  assert.equal(h.authorizePath, '/login/oauth/authorize');
+  assert.equal(h.tokenPath, '/login/oauth/access_token');
+  assert.equal(h.userPath, '/user');
+  assert.equal(h.userAuthStyle, 'bearer');
+  assert.equal(h.scope, 'read:user');
+  assert.equal(h.tokenHeaders.accept, 'application/json', '不加这个头 GitHub 回 form 编码');
+
+  // 归一化：非法/缺省一律 gitee（旧 oauth.json 无 provider 字段的兼容路径）
+  assert.equal(normalizeProvider(undefined), 'gitee');
+  assert.equal(normalizeProvider(null), 'gitee');
+  assert.equal(normalizeProvider(''), 'gitee');
+  assert.equal(normalizeProvider('gitlab'), 'gitee', '未知 provider 回退 gitee');
+  assert.equal(normalizeProvider('github'), 'github');
+});
+
+test('providerAuthorizeUrl：按表拼端点与 scope；非法 provider 回退 gitee', () => {
+  const gh = new URL(providerAuthorizeUrl({ provider: 'github', clientId: 'cid', redirectUri: 'https://x/cb', state: 'st' }));
+  assert.equal(gh.origin + gh.pathname, 'https://github.com/login/oauth/authorize');
+  assert.equal(gh.searchParams.get('client_id'), 'cid');
+  assert.equal(gh.searchParams.get('redirect_uri'), 'https://x/cb');
+  assert.equal(gh.searchParams.get('response_type'), 'code');
+  assert.equal(gh.searchParams.get('state'), 'st');
+  assert.equal(gh.searchParams.get('scope'), 'read:user');
+
+  const gt = new URL(providerAuthorizeUrl({ provider: 'gitee', clientId: 'cid', redirectUri: 'https://x/cb' }));
+  assert.equal(gt.origin + gt.pathname, 'https://gitee.com/oauth/authorize');
+  assert.equal(gt.searchParams.get('scope'), 'user_info');
+
+  const bogus = new URL(providerAuthorizeUrl({ provider: 'gitlab', clientId: 'cid', redirectUri: 'https://x/cb' }));
+  assert.equal(bogus.origin + bogus.pathname, 'https://gitee.com/oauth/authorize', '未知 provider 回退 gitee');
+});
+
 // ---------- 单元：state 存储 ----------
 
-test('state 存储：单次使用、TTL 过期、不同 purpose 隔离', () => {
+test('state 存储：单次使用、TTL 过期、不同 purpose/provider 隔离', () => {
   const s = createStateStore({ ttlMs: 100 });
-  const a = s.create('login');
-  const b = s.create('bind');
+  const a = s.create('login', 'gitee');
+  const b = s.create('bind', 'github');
   assert.match(a, /^[0-9a-f]{32}$/, '随机 hex state');
-  assert.equal(s.consume(a), 'login', '首次消费返回 purpose');
+  assert.deepEqual(s.consume(a), { purpose: 'login', provider: 'gitee' }, '首次消费返回 purpose + provider');
   assert.equal(s.consume(a), null, '单次使用：再消费为 null');
-  assert.equal(s.consume(b), 'bind', '不同 state 各自独立');
+  assert.deepEqual(s.consume(b), { purpose: 'bind', provider: 'github' }, '不同 state 各自独立（provider 随 state 走）');
+  // 非法 provider 归一化
+  const c = s.create('login', 'gitlab');
+  assert.deepEqual(s.consume(c), { purpose: 'login', provider: 'gitee' }, '未知 provider 归一为 gitee');
   // 过期
-  const c = s.create('login', Date.now() - 1000);
-  assert.equal(s.consume(c), null, '过期 state 拒绝');
+  const d = s.create('login', 'gitee', Date.now() - 1000);
+  assert.equal(s.consume(d), null, '过期 state 拒绝');
   assert.equal(s.consume('garbage'), null, '未知 state 拒绝');
 });
 
@@ -130,7 +190,7 @@ async function withHome(fn) {
   }
 }
 
-test('oauth.json：读写、0o600、清除、坏文件 fail closed、视图脱敏', () => withHome(async (home) => {
+test('oauth.json：读写、0o600、清除、坏文件 fail closed、视图脱敏、provider 兼容', () => withHome(async (home) => {
   const { writeFileSync, mkdirSync } = await import('node:fs');
   assert.equal(readOAuthConfig(), null, '无文件 → 未配置');
 
@@ -143,6 +203,7 @@ test('oauth.json：读写、0o600、清除、坏文件 fail closed、视图脱�
   assert.equal(cfg.clientId, 'cid');
   assert.equal(cfg.boundUid, '4242');
   assert.equal(cfg.callbackOrigins.length, 2);
+  assert.equal(cfg.provider, 'gitee', '旧文件缺 provider → 按 gitee 解释（零感知升级）');
   const p = join(home, 'dsh-pocket', 'oauth.json');
   if (process.platform !== 'win32') {
     assert.equal(statSync(p).mode & 0o777, 0o600, '权限 0600（secret 落盘）');
@@ -152,12 +213,22 @@ test('oauth.json：读写、0o600、清除、坏文件 fail closed、视图脱�
   // 视图脱敏：不含 secret
   const view = oauthView(cfg);
   assert.deepEqual(view, {
+    provider: 'gitee',
     configured: true,
     callbackOrigins: ['http://127.0.0.1:3081', 'https://pocket.example.com'],
     bound: true,
     boundLogin: 'alice',
   });
   assert.ok(!JSON.stringify(view).includes('secret'), '视图不含 secret');
+
+  // provider 落盘与读回；非法值一律回退 gitee
+  writeOAuthConfig({ ...cfg, provider: 'github' });
+  assert.equal(readOAuthConfig().provider, 'github');
+  assert.equal(oauthView(readOAuthConfig()).provider, 'github');
+  writeOAuthConfig({ ...cfg, provider: 'gitlab' });
+  assert.equal(readOAuthConfig().provider, 'gitee', '非法 provider 回退 gitee');
+  writeOAuthConfig({ ...cfg, provider: 42 });
+  assert.equal(readOAuthConfig().provider, 'gitee', '非字符串 provider 回退 gitee');
 
   // 清除
   assert.equal(clearOAuthConfig(), true);
@@ -169,7 +240,8 @@ test('oauth.json：读写、0o600、清除、坏文件 fail closed、视图脱�
   assert.equal(readOAuthConfig(), null, '坏文件视为未配置');
 
   // 空 cfg 视图
-  assert.deepEqual(oauthView(null), { configured: false, callbackOrigins: [], bound: false, boundLogin: null });
+  assert.deepEqual(oauthView(null), { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null });
+  assert.equal(oauthView({ provider: 'github' }).provider, 'github', 'null cfg 以外的视图保留 provider');
 }));
 
 // ---------- 单元：exchangeCodeForUser（mock fetch） ----------
@@ -193,21 +265,46 @@ function mockGitee({ tokenOk = true, userOk = true, uid = '4242', login = 'alice
   };
 }
 
-test('exchangeCodeForUser：成功返回 {id,login}（数字 id 归一为字符串）；换票/取用户失败给出双语错误', async () => {
+/** 桩 GitHub：token 在 github 域、用户信息在 api 域（Bearer），可模拟 200+error JSON。 */
+function mockGithub({ tokenError = null, userOk = true, uid = '4242', login = 'alice', requests = [] } = {}) {
+  return async (url, init) => {
+    requests.push({ url: String(url), init });
+    if (String(url).endsWith('/login/oauth/access_token')) {
+      if (tokenError) {
+        // GitHub 换票失败是 200 + {error} JSON（不是 4xx）——必须走同一条兜底分支
+        return { ok: true, status: 200, json: async () => ({ error: tokenError, error_description: 'bad verification code' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ access_token: 'gho-xyz', token_type: 'bearer', expires_in: 28800 }) };
+    }
+    if (String(url).endsWith('api.github.com/user') || /\/user$/.test(String(url))) {
+      if (!userOk) {
+        return { ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ id: Number(uid), login }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+}
+
+test('exchangeCodeForUser（gitee）：成功返回 {id,login}（数字 id 归一为字符串）；换票/取用户失败给出双语错误', async () => {
   const requests = [];
   const ok = await exchangeCodeForUser({
     clientId: 'cid', clientSecret: 'sec', code: 'c1', redirectUri: 'https://x/pocket-oauth/callback',
-    fetchImpl: mockGitee({ requests }), baseUrl: 'http://gitee.test',
+    fetchImpl: mockGitee({ requests }), base: 'http://gitee.test',
   });
   assert.deepEqual(ok, { id: '4242', login: 'alice' }, '数字 id → 字符串');
   assert.equal(requests.length, 2, 'token + user 两次请求');
   assert.ok(requests[0].url.startsWith('http://gitee.test/oauth/token'));
   assert.ok(String(requests[0].init.body).includes('redirect_uri='), 'redirect_uri 参与 token 交换');
+  // gitee 回归：不加 Accept: application/json；用户信息走同域 ?access_token=，不带 Authorization
+  assert.equal(requests[0].init.headers.accept, undefined, 'gitee 换票不额外带 accept 头');
+  assert.equal(requests[1].url, 'http://gitee.test/api/v5/user?access_token=at-xyz', 'gitee 用户信息用 query 带 token，且跟随 base');
+  assert.equal(requests[1].init?.headers?.authorization, undefined, 'gitee 不用 Bearer');
 
   await assert.rejects(
     () => exchangeCodeForUser({
       clientId: 'cid', clientSecret: 'sec', code: 'bad', redirectUri: 'https://x/cb',
-      fetchImpl: mockGitee({ tokenOk: false }), baseUrl: 'http://gitee.test',
+      fetchImpl: mockGitee({ tokenOk: false }), base: 'http://gitee.test',
     }),
     (err) => /invalid_grant|token exchange failed/i.test(err.message),
     '换票失败抛错',
@@ -215,7 +312,7 @@ test('exchangeCodeForUser：成功返回 {id,login}（数字 id 归一为字符�
   await assert.rejects(
     () => exchangeCodeForUser({
       clientId: 'cid', clientSecret: 'sec', code: 'c', redirectUri: 'https://x/cb',
-      fetchImpl: mockGitee({ userOk: false }), baseUrl: 'http://gitee.test',
+      fetchImpl: mockGitee({ userOk: false }), base: 'http://gitee.test',
     }),
     (err) => /bad token|user info failed/i.test(err.message),
     '取用户失败抛错',
@@ -223,10 +320,50 @@ test('exchangeCodeForUser：成功返回 {id,login}（数字 id 归一为字符�
   await assert.rejects(
     () => exchangeCodeForUser({
       clientId: 'cid', clientSecret: 'sec', code: 'c', redirectUri: 'https://x/cb',
-      fetchImpl: async () => { throw new TypeError('fetch failed'); }, baseUrl: 'http://gitee.test',
+      fetchImpl: async () => { throw new TypeError('fetch failed'); }, base: 'http://gitee.test',
     }),
     (err) => /无法连接 Gitee|cannot reach Gitee/.test(err.message),
     '网络错误给出可读信息',
+  );
+});
+
+test('exchangeCodeForUser（github）：Accept: application/json + Bearer + 异域 apiBase；200+error JSON 兜住', async () => {
+  const requests = [];
+  const ok = await exchangeCodeForUser({
+    provider: 'github', clientId: 'cid', clientSecret: 'sec', code: 'c1', redirectUri: 'https://x/pocket-oauth/callback',
+    fetchImpl: mockGithub({ requests }), base: 'http://github.test', apiBase: 'http://api.github.test',
+  });
+  assert.deepEqual(ok, { id: '4242', login: 'alice' });
+  assert.equal(requests[0].url, 'http://github.test/login/oauth/access_token', 'token 打到 github web 域');
+  assert.equal(requests[0].init.headers.accept, 'application/json', '必须带 Accept: application/json');
+  assert.equal(requests[0].init.headers['content-type'], 'application/x-www-form-urlencoded');
+  assert.equal(requests[1].url, 'http://api.github.test/user', '用户信息打到 api 域，不带 query token');
+  assert.equal(requests[1].init.headers.authorization, 'Bearer gho-xyz', 'Bearer 携带 token');
+
+  // GitHub 换票失败：HTTP 200 + {error}（不是 4xx）也必须抛错
+  await assert.rejects(
+    () => exchangeCodeForUser({
+      provider: 'github', clientId: 'cid', clientSecret: 'sec', code: 'bad', redirectUri: 'https://x/cb',
+      fetchImpl: mockGithub({ tokenError: 'bad_verification_code' }), base: 'http://github.test', apiBase: 'http://api.github.test',
+    }),
+    (err) => /bad verification code|bad_verification_code/.test(err.message) && /GitHub/.test(err.message),
+    '200 + error JSON 也要判失败（GitHub 特有）',
+  );
+  await assert.rejects(
+    () => exchangeCodeForUser({
+      provider: 'github', clientId: 'cid', clientSecret: 'sec', code: 'c', redirectUri: 'https://x/cb',
+      fetchImpl: mockGithub({ userOk: false }), base: 'http://github.test', apiBase: 'http://api.github.test',
+    }),
+    (err) => /Bad credentials|GitHub user info failed/.test(err.message),
+    '取用户失败抛错（错误文案带 provider 名）',
+  );
+  await assert.rejects(
+    () => exchangeCodeForUser({
+      provider: 'github', clientId: 'cid', clientSecret: 'sec', code: 'c', redirectUri: 'https://x/cb',
+      fetchImpl: async () => { throw new TypeError('fetch failed'); }, base: 'http://github.test', apiBase: 'http://api.github.test',
+    }),
+    (err) => /无法连接 GitHub|cannot reach GitHub/.test(err.message),
+    '网络错误文案按 provider',
   );
 });
 
@@ -280,8 +417,11 @@ function raw(port, { method = 'GET', path = '/', host = '127.0.0.1', headers = {
   });
 }
 
-/** 起一个带 OAuth auth 的代理；cfg 为可变配置对象。 */
-async function oauthProxy({ cfg, session, upstreamPort, fetchImpl }) {
+/** 起一个带 OAuth auth 的代理；cfg 为可变配置对象。
+ *  两家鉴权方的测试基址都注入：giteeBase（同域）、githubBase + githubApiBase（异域）。 */
+async function oauthProxy({ cfg, session, upstreamPort, fetchImpl, githubFetchImpl }) {
+  const fetchStub = fetchImpl ?? mockGitee();
+  const githubStub = githubFetchImpl ?? mockGithub();
   return createPocketProxy({
     port: 0, host: '127.0.0.1',
     upstream: { host: '127.0.0.1', port: upstreamPort },
@@ -291,10 +431,19 @@ async function oauthProxy({ cfg, session, upstreamPort, fetchImpl }) {
       getConfig: () => cfg.value,
       saveConfig: (draft) => { cfg.value = draft; },
       bindUser: (user) => {
-        cfg.value = { ...cfg.value, boundUid: String(user.id), boundLogin: user.login };
+        // 与 lib/index.js bindOAuthUser 同形状：provider 一并落盘
+        cfg.value = {
+          ...cfg.value,
+          provider: normalizeProvider(user.provider ?? cfg.value?.provider),
+          boundUid: String(user.id),
+          boundLogin: user.login,
+        };
       },
       giteeBase: 'http://gitee.test',
-      fetchImpl: fetchImpl ?? mockGitee(),
+      githubBase: 'http://github.test',
+      githubApiBase: 'http://api.github.test',
+      // 按目标域分派桩：同一份 fetchImpl 同时服务两家（测试里换 provider 只改 cfg）
+      fetchImpl: (url, init) => (String(url).includes('github.test') ? githubStub(url, init) : fetchStub(url, init)),
     },
   });
 }
@@ -506,6 +655,117 @@ test('setup 页与绑定流程：仅本机；POST 保存 → 303 发起绑定 �
     assert.match(cb.body, /alice/);
     assert.equal(cfg.value.boundUid, '4242');
     assert.equal(cfg.value.boundLogin, 'alice');
+  } finally {
+    await proxy.close();
+    await new Promise((r) => up.server.close(r));
+  }
+});
+
+test('setup 选 GitHub：provider 落盘、302 到 github authorize、绑定与登录全流程（cookie 公式不变）', async () => {
+  const up = await fakeUpstream();
+  const cfg = { value: null };
+  const proxy = await oauthProxy({ cfg, session: { key: 'sk-1' }, upstreamPort: up.port });
+  const loopbackHost = `127.0.0.1:${proxy.port}`;
+  const postForm = (payload) => raw(proxy.port, {
+    method: 'POST', host: loopbackHost, path: '/pocket-setup/save',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(payload).toString(),
+  });
+  try {
+    // 初始化页提供 provider 单选与两家创建入口
+    const setup = await raw(proxy.port, { host: loopbackHost, path: '/pocket-setup' });
+    assert.equal(setup.status, 200);
+    assert.match(setup.body, /name="provider"/, '带 provider 单选');
+    assert.match(setup.body, /value="gitee"[^>]*checked/, '默认选中 Gitee');
+    assert.match(setup.body, /value="github"/);
+    assert.match(setup.body, /gitee\.com\/oauth\/applications/);
+    assert.match(setup.body, /github\.com\/settings\/developers/);
+    assert.match(setup.body, /user_info/);
+    assert.match(setup.body, /read:user/);
+
+    // 非法 provider：400 拒绝且不落盘（表单被篡改时不静默改成别家）
+    const nonce = nonceFrom(setup.body);
+    const bad = await postForm({ nonce, client_id: 'cid', client_secret: 'sec', provider: 'gitlab', origins: `http://${loopbackHost}` });
+    assert.equal(bad.status, 400, '未知 provider 拒绝');
+    assert.match(bad.body, /未知的鉴权方|unknown provider/);
+    assert.equal(cfg.value, null, '非法 provider 一个字节都没落盘');
+
+    // 选 GitHub → provider 落盘
+    const save = await postForm({ nonce, client_id: 'cid', client_secret: 'sec', provider: 'github', origins: `http://${loopbackHost}\nhttps://pocket.example.com` });
+    assert.equal(save.status, 303);
+    assert.equal(cfg.value.provider, 'github', 'provider 落盘');
+    assert.equal(cfg.value.boundUid, null, '换 provider 后需重新绑定');
+
+    // 绑定：start → github authorize（read:user）→ callback 落 uid
+    const start = await raw(proxy.port, { host: loopbackHost, path: '/pocket-oauth/start?bind=1' });
+    assert.equal(start.status, 302);
+    const loc = new URL(start.location);
+    assert.equal(loc.origin + loc.pathname, 'http://github.test/login/oauth/authorize', '打到 GitHub 授权端点');
+    assert.equal(loc.searchParams.get('scope'), 'read:user');
+    assert.equal(loc.searchParams.get('redirect_uri'), `http://${loopbackHost}${OAUTH_CALLBACK_PATH}`);
+    const state = loc.searchParams.get('state');
+    const cb = await raw(proxy.port, { host: loopbackHost, path: `/pocket-oauth/callback?code=c1&state=${state}` });
+    assert.equal(cb.status, 200);
+    assert.match(cb.body, /绑定成功/);
+    assert.match(cb.body, /GitHub/, '成功页文案按 provider');
+    assert.equal(cfg.value.provider, 'github');
+    assert.equal(cfg.value.boundUid, '4242');
+    assert.equal(cfg.value.boundLogin, 'alice');
+
+    // 登录页文案按 provider（GitHub）
+    const wall = await raw(proxy.port, { host: 'pocket.example.com', headers: { accept: 'text/html' } });
+    assert.equal(wall.status, 200);
+    assert.match(wall.body, /使用 GitHub 账号登录/, '登录按钮文案按 provider');
+    assert.match(wall.body, /protected by GitHub/);
+
+    // 登录：github 换票 → 种 cookie（公式仍是 sha256(uid:sessionKey)，未变）
+    const start2 = await raw(proxy.port, { host: 'pocket.example.com', path: '/pocket-oauth/start' });
+    assert.equal(start2.status, 302);
+    const state2 = new URL(start2.location).searchParams.get('state');
+    const cb2 = await raw(proxy.port, { host: 'pocket.example.com', path: `/pocket-oauth/callback?code=c2&state=${state2}` });
+    assert.equal(cb2.status, 303);
+    const sc = Array.isArray(cb2.setCookie) ? cb2.setCookie.join(';') : String(cb2.setCookie ?? '');
+    assert.ok(sc.includes(`${SESSION_COOKIE}=${sessionCookieValue('4242', 'sk-1')}`), 'cookie 公式未变（老设备不掉线）');
+    const authed = await raw(proxy.port, { host: 'pocket.example.com', path: '/api/x', headers: { cookie: `${SESSION_COOKIE}=${sessionCookieValue('4242', 'sk-1')}`, accept: 'application/json' } });
+    assert.equal(authed.status, 200, 'GitHub 登录后放行');
+  } finally {
+    await proxy.close();
+    await new Promise((r) => up.server.close(r));
+  }
+});
+
+test('跨 provider 撞号：同 uid 但 state 的 provider 与当前配置不符 → 403（先比 provider 再比 uid）', async () => {
+  const up = await fakeUpstream();
+  // 本机以 gitee 绑定 uid 4242
+  const cfg = { value: { provider: 'gitee', clientId: 'cid', clientSecret: 'sec', callbackOrigins: ['https://pocket.example.com'], boundUid: '4242', boundLogin: 'alice' } };
+  const proxy = await oauthProxy({ cfg, session: { key: 'sk-1' }, upstreamPort: up.port });
+  try {
+    // 发起登录（state 记住 gitee），随后配置被改成 github（模拟换家 / 时序竞态）
+    const start = await raw(proxy.port, { host: 'pocket.example.com', path: '/pocket-oauth/start' });
+    assert.equal(start.status, 302);
+    const state = new URL(start.location).searchParams.get('state');
+    cfg.value = { ...cfg.value, provider: 'github' };
+
+    // gitee 侧返回的 uid 恰好也是 4242：provider 不符必须拒（否则跨家撞号即登录成功）
+    const cb = await raw(proxy.port, { host: 'pocket.example.com', path: `/pocket-oauth/callback?code=c1&state=${state}` });
+    assert.equal(cb.status, 403, 'provider 不符 → 拒绝');
+    assert.match(cb.body, /未绑定/);
+    assert.ok(!(cb.setCookie ?? []).toString().includes(SESSION_COOKIE), '不种会话 cookie');
+  } finally {
+    await proxy.close();
+    await new Promise((r) => up.server.close(r));
+  }
+});
+
+test('换家（Gitee ↔ GitHub）后未绑定：登录入口回到「待绑定」，需在本机重开 setup', async () => {
+  const up = await fakeUpstream();
+  const cfg = { value: { provider: 'github', clientId: 'cid', clientSecret: 'sec', callbackOrigins: ['https://pocket.example.com'], boundUid: null, boundLogin: null } };
+  const proxy = await oauthProxy({ cfg, session: { key: 'sk-1' }, upstreamPort: up.port });
+  try {
+    const wall = await raw(proxy.port, { host: 'pocket.example.com', headers: { accept: 'text/html' } });
+    assert.equal(wall.status, 503);
+    assert.match(wall.body, /待绑定/);
+    assert.match(wall.body, /GitHub 账号/, '待绑定文案按 provider');
   } finally {
     await proxy.close();
     await new Promise((r) => up.server.close(r));

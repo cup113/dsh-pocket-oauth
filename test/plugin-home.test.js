@@ -74,7 +74,7 @@ for (const desktop of [false, true]) {
     assert.equal(s.value.proxyPort, 3081);
     assert.deepEqual(
       s.value.oauth,
-      { configured: false, callbackOrigins: [], bound: false, boundLogin: null },
+      { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null },
       '未初始化时 status 携带未配置视图',
     );
     assert.equal(s.value.desktop, desktop);

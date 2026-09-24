@@ -74,7 +74,7 @@ test('真实链路：RPC status 走真实 service（含 restartNotice）', async
     assert.ok(r.value.proxyPort > 0);
     assert.deepEqual(
       r.value.oauth,
-      { configured: false, callbackOrigins: [], bound: false, boundLogin: null },
+      { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null },
       'RPC 返回 OAuth 未配置视图',
     );
     assert.equal(r.value.restartNotice, null, '无重启标记');

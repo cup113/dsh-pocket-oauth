@@ -74,7 +74,7 @@ test('service：startProxy → 状态快照（OAuth 视图 + origin 二维码 + 
 
   const before = await service.status();
   assert.equal(before.proxyRunning, false);
-  assert.deepEqual(before.oauth, { configured: true, callbackOrigins: cfg.callbackOrigins, bound: true, boundLogin: 'alice' });
+  assert.deepEqual(before.oauth, { provider: 'gitee', configured: true, callbackOrigins: cfg.callbackOrigins, bound: true, boundLogin: 'alice' });
 
   const proxy = await service.startProxy();
   assert.equal(proxy.port, 3081);
@@ -132,8 +132,18 @@ test('service：未配置 OAuth 时状态给出安全视图（不抛错）', asy
   const service = createPocketService({ dshPort: 3080, port: 3081, internals, getOAuthConfig: () => null });
   await service.startProxy();
   const st = await service.status();
-  assert.deepEqual(st.oauth, { configured: false, callbackOrigins: [], bound: false, boundLogin: null });
+  assert.deepEqual(st.oauth, { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null });
   assert.deepEqual(st.originQrs, []);
+  await service.dispose();
+});
+
+test('service：provider 透传到安全视图（github 配置 → 设置页可显示当前鉴权方）', async () => {
+  const internals = stubInternals();
+  const cfg = { provider: 'github', clientId: 'cid', clientSecret: 'sec', callbackOrigins: [], boundUid: '7', boundLogin: 'octocat' };
+  const service = createPocketService({ dshPort: 3080, port: 3081, internals, getOAuthConfig: () => cfg });
+  const st = await service.status();
+  assert.equal(st.oauth.provider, 'github');
+  assert.equal(st.oauth.boundLogin, 'octocat');
   await service.dispose();
 });
 

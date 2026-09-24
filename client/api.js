@@ -75,6 +75,8 @@ export function redactStatus(s) {
     dshPort: s?.dshPort ?? null,
     lanCandidates: Array.isArray(s?.lanCandidates) ? s.lanCandidates : [],
     oauth: {
+      // 鉴权方（Gitee / GitHub）：缺省/非法一律按 gitee 解释（与后端 readOAuthConfig 一致）
+      provider: s?.oauth?.provider === 'github' ? 'github' : 'gitee',
       configured: s?.oauth?.configured === true,
       callbackOrigins: Array.isArray(s?.oauth?.callbackOrigins) ? s.oauth.callbackOrigins : [],
       bound: s?.oauth?.bound === true,
@@ -133,6 +135,12 @@ export async function copyText(text) {
 export function buildTroubleshootingContext(status, meta = {}) {
   const s = status ?? {};
   const oauth = s.oauth ?? {};
+  // 鉴权方：缺省/非法一律按 gitee 解释（与 lib/oauth.mjs normalizeProvider 一致）
+  const provider = oauth.provider === 'github' ? 'github' : 'gitee';
+  const label = provider === 'github' ? 'GitHub' : 'Gitee';
+  const appUrl = provider === 'github' ? 'github.com/settings/developers' : 'gitee.com/oauth/applications';
+  const scope = provider === 'github' ? 'read:user' : 'user_info';
+  const netTargets = provider === 'github' ? 'github.com 与 api.github.com' : 'gitee.com';
   const groups = { local: [], lan: [], public: [] };
   for (const o of s.originQrs ?? []) {
     const kind = ORIGIN_KINDS.has(o?.kind) ? o.kind : fallbackKind(o?.origin ?? '');
@@ -159,21 +167,22 @@ ${list(groups.public)}
 ## 系统如何工作（dsh-pocket 架构与认证模型）
 - dsh-pocket 是 dsh web 的插件：在本机起一个**单端口反向代理**（默认 0.0.0.0:${s.proxyPort ?? 3081}），把入站请求的 Host/Origin 改写成 127.0.0.1:${s.dshPort ?? 3080}（loopback）后转发；HTTP 与 WebSocket 全透传，所以手机看到的就是电脑上的界面。
 - 公网入口由用户**自建隧道**（必须有固定域名）指向 \`http://127.0.0.1:${s.proxyPort ?? 3081}\`；隧道/反代**必须保持原域名 Host 转发**（若把 Host 改写成 127.0.0.1，公网请求会被判为本机而免认证）。
-- 认证 = **Gitee OAuth**：本机浏览器打开 \`http://127.0.0.1:${s.proxyPort ?? 3081}/pocket-setup\` 初始化，绑定一个 Gitee 账号（uid）；此后任意设备经白名单地址用**同一个** Gitee 账号登录换会话 cookie（HttpOnly，绑定 dsh web 进程级密钥——**dsh web 重启后所有设备需重新登录**，属预期）。
-- Gitee 应用（gitee.com/oauth/applications，需勾选 user_info 权限）的「应用回调地址」与插件白名单**逐字符一致**：每条 = \`<访问地址>/pocket-oauth/callback\`（协议、域名、端口都要一样）。
+- 认证 = **${label} OAuth**（初始化时在 Gitee / GitHub 中二选一）：本机浏览器打开 \`http://127.0.0.1:${s.proxyPort ?? 3081}/pocket-setup\` 选定鉴权方并绑定一个账号（uid）；此后任意设备经白名单地址用**同一个** ${label} 账号登录换会话 cookie（HttpOnly，绑定 dsh web 进程级密钥——**dsh web 重启后所有设备需重新登录**，属预期）。provider 与 uid 都要对上，换家（Gitee ⇄ GitHub）需重新绑定。
+- ${label} OAuth 应用（${appUrl}，权限 ${scope}；GitHub 免审核）的「回调地址」与插件白名单**逐字符一致**：每条 = \`<访问地址>/pocket-oauth/callback\`（协议、域名、端口都要一样）。
 
 ## 当前状态快照
 - 插件版本：${v.current ? `v${v.current}` : '未知'}${v.loaded ? `（进程运行 v${v.loaded}）` : ''}；安装方式：${installKindText}
 - 代理：${s.proxyRunning === true ? `运行中，端口 ${s.proxyPort ?? '?'}` : '未运行/启动中'}；上游 dsh web 端口：${s.dshPort ?? '?'}
-- Gitee OAuth：${oauth.configured ? '已配置' : '未配置'}${oauth.bound ? `，已绑定账号 ${oauth.boundLogin ?? '?'}` : '，未绑定账号'}；回调白名单 ${oauth.callbackOrigins?.length ?? origins.length ?? 0} 条
+- ${label} OAuth：${oauth.configured ? '已配置' : '未配置'}${oauth.bound ? `，已绑定账号 ${oauth.boundLogin ?? '?'}` : '，未绑定账号'}；回调白名单 ${oauth.callbackOrigins?.length ?? origins.length ?? 0} 条
 - 本机局域网 IP 候选：${(s.lanCandidates ?? []).join('、') || '无'}
 - 浏览器 UA：${meta.ua ?? '未提供'}
 
 ## 常见坑（按命中率排序）
-1. Gitee 报「redirect_uri 不一致/授权未完成」→ 回调地址没有逐字符匹配（http/https、域名、端口、路径），Gitee 应用与插件白名单两处都要一致。
+1. ${label} 报「redirect_uri 不一致/授权未完成」→ 回调地址没有逐字符匹配（http/https、域名、端口、路径），${label} 应用与插件白名单两处都要一致。
 2. Safari 打不开 http:// + 纯 IP 入口（反复跳转）→ Safari 不在该类源上保存握手 cookie；换 Chromium 系浏览器，或改用 https 固定域名入口。
-3. 公网域名打开异常/被拒 → 反代把 Host 改写成了 127.0.0.1，或该域名不在白名单/Gitee 回调中。
-4. 代理端口顺延（3081 被占自动换 3082）→ Gitee 回调里的端口全部失配，需同步改两处。
+3. 公网域名打开异常/被拒 → 反代把 Host 改写成了 127.0.0.1，或该域名不在白名单/${label} 回调中。
+4. 代理端口顺延（3081 被占自动换 3082）→ ${label} 回调里的端口全部失配，需同步改两处。
 5. dsh web 重启/更新后手机被踢回登录页 → 会话绑定进程级密钥，属预期设计。
+6. 选了 GitHub 时国内网络不稳 → 需能出网访问 ${netTargets}；国内用户选 Gitee 更稳（换家即在 /pocket-setup 重选并重新绑定）。
 `;
 }

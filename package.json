@@ -1,6 +1,6 @@
 {
   "name": "dsh-pocket",
-  "description": "把 DeepSeek Harness 装进你的口袋：单端口 3081 + Gitee OAuth 登录，自建隧道（固定域名）即可远程实时同屏访问电脑上的 DSH。",
+  "description": "把 DeepSeek Harness 装进你的口袋：单端口 3081 + Gitee / GitHub OAuth 登录（初始化时二选一），自建隧道（固定域名）即可远程实时同屏访问电脑上的 DSH。",
   "type": "module",
   "main": "lib/index.js",
   "bin": {
@@ -54,6 +54,7 @@
     "remote-access",
     "oauth2",
     "gitee",
+    "github",
     "qr-code"
   ],
   "dsh": {

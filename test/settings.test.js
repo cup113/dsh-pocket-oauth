@@ -63,7 +63,7 @@ test('恢复出厂设置：resetSettings 清空设置文件；resetPocketState �
   assert.equal(oauth.readOAuthConfig()?.clientSecret, 'sec', 'OAuth 配置已写入');
 
   const view = resetPocketState();
-  assert.deepEqual(view, { configured: false, callbackOrigins: [], bound: false, boundLogin: null }, '重置后视图回到未配置');
+  assert.deepEqual(view, { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null }, '重置后视图回到未配置');
   assert.equal(existsSync(settings.settingsPath()), false, '设置文件已删除');
   assert.equal(oauth.readOAuthConfig(), null, 'OAuth 配置已清除');
   assert.equal(settings.mobileRightbarEnabled(), true, '开关回到默认');
@@ -71,28 +71,38 @@ test('恢复出厂设置：resetSettings 清空设置文件；resetPocketState �
   assert.equal(rotateSessionKey(), true, '会话密钥同时轮换');
 }));
 
-test('绑定 / 解绑（lib/index.js）：bindGiteeUser 保留凭据落 uid；unbindGiteeUser 只清绑定', () => withHome(async () => {
+test('绑定 / 解绑（lib/index.js）：bindOAuthUser 保留凭据落 uid+provider；unbindOAuthUser 只清绑定', () => withHome(async () => {
   const oauth = await import('../lib/oauth.mjs');
-  const { bindGiteeUser, unbindGiteeUser } = await import('../lib/index.js');
+  const { bindOAuthUser, unbindOAuthUser } = await import('../lib/index.js');
 
   oauth.writeOAuthConfig({
     clientId: 'cid', clientSecret: 'sec',
     callbackOrigins: ['https://pocket.example.com'], boundUid: null, boundLogin: null,
   });
-  bindGiteeUser({ id: 4242, login: 'alice' });
+  bindOAuthUser({ id: 4242, login: 'alice' });
   let cfg = oauth.readOAuthConfig();
   assert.equal(cfg.boundUid, '4242', 'uid 落盘（数字归一字符串）');
   assert.equal(cfg.boundLogin, 'alice');
+  assert.equal(cfg.provider, 'gitee', '缺省 provider 回退 gitee');
   assert.equal(cfg.clientSecret, 'sec', '凭据保留');
 
-  const view = unbindGiteeUser();
+  // GitHub 绑定：provider 一并落盘（跨家撞号防护的前提）
+  bindOAuthUser({ id: 4242, login: 'alice-gh', provider: 'github' });
+  cfg = oauth.readOAuthConfig();
+  assert.equal(cfg.provider, 'github', 'provider 落盘');
+  assert.equal(cfg.boundLogin, 'alice-gh');
+
+  const view = unbindOAuthUser();
   assert.equal(view.bound, false, '视图显示未绑定');
+  assert.equal(view.provider, 'github', '解绑不动 provider');
   cfg = oauth.readOAuthConfig();
   assert.equal(cfg.boundUid, null, '绑定清除');
   assert.equal(cfg.clientId, 'cid', '凭据与白名单保留');
+  assert.equal(cfg.provider, 'github', 'provider 保留');
 
   // 无配置时解绑不抛错
   oauth.clearOAuthConfig();
-  const empty = unbindGiteeUser();
+  const empty = unbindOAuthUser();
   assert.equal(empty.bound, false);
+  assert.equal(empty.provider, 'gitee', '空视图给 gitee');
 }));

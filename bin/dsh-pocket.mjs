@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// dsh-pocket — 独立代理模式（与插件共用同一套代码与 Gitee OAuth 配置）
+// dsh-pocket — 独立代理模式（与插件共用同一套代码与 OAuth 配置）
 //
 // 用法：
 //   dsh-pocket                 # 默认监听 0.0.0.0:3081（供自建隧道回连）
 //   dsh-pocket --port 3081     # 自定义代理端口（dsh web 保持 3080）
 //   dsh-pocket --host 0.0.0.0  # 自定义监听地址
 //
-// 认证与插件一致：loopback 免认证；其余 Host 要求 Gitee OAuth 会话。
+// 认证与插件一致：loopback 免认证；其余 Host 要求 OAuth 会话（Gitee 或 GitHub，
+// 初始化时二选一）。
 // 初始化：本机浏览器打开 http://127.0.0.1:<port>/pocket-setup。
 // 前提：dsh web 已在 127.0.0.1:3080 运行。
 
@@ -14,7 +15,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { createPocketProxy } from '../lib/proxy.mjs';
-import { readOAuthConfig, writeOAuthConfig } from '../lib/oauth.mjs';
+import { readOAuthConfig, writeOAuthConfig, normalizeProvider } from '../lib/oauth.mjs';
 
 export function parseArgs(argv) {
   const args = {
@@ -32,7 +33,7 @@ export function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`dsh-pocket — 远程访问电脑上的 DeepSeek Harness（Gitee OAuth 登录）
+  console.log(`dsh-pocket — 远程访问电脑上的 DeepSeek Harness（Gitee / GitHub OAuth 登录）
 
 用法：
   dsh-pocket              监听 0.0.0.0:3081（自建隧道指向该端口）
@@ -41,7 +42,8 @@ function printHelp() {
   dsh-pocket --help       帮助
 
 初始化（一次）：本机浏览器打开 http://127.0.0.1:3081/pocket-setup，
-绑定你的 Gitee 账号；此后任意设备经白名单地址用同一账号登录即可。
+选 Gitee 或 GitHub 创建 OAuth 应用并绑定该账号；此后任意设备经白名单地址
+用同一账号登录即可。
 
 前提：dsh web 已在 127.0.0.1:3080 运行（npx @deepseek-ai/dsh web）。
 `);
@@ -60,14 +62,19 @@ async function main() {
       saveConfig: writeOAuthConfig,
       bindUser: (user) => {
         const cfg = readOAuthConfig() ?? { clientId: '', clientSecret: '', callbackOrigins: [] };
-        return writeOAuthConfig({ ...cfg, boundUid: String(user.id), boundLogin: user.login });
+        return writeOAuthConfig({
+          ...cfg,
+          provider: normalizeProvider(user?.provider ?? cfg.provider),
+          boundUid: String(user.id),
+          boundLogin: user.login,
+        });
       },
     },
   });
 
-  console.log(`\n⚙️  初始化 / 绑定 Gitee 账号（本机浏览器打开）：http://127.0.0.1:${port}/pocket-setup`);
+  console.log(`\n⚙️  初始化 / 绑定账号（本机浏览器打开）：http://127.0.0.1:${port}/pocket-setup`);
   console.log(`   监听 ${args.host}:${port}；自建隧道（固定域名）指向该端口即可远程访问。`);
-  console.log(`   本机（127.0.0.1）免认证；其余地址需 Gitee OAuth 登录。`);
+  console.log(`   本机（127.0.0.1）免认证；其余地址需 OAuth 登录（Gitee 或 GitHub）。`);
 
   const shutdown = async () => {
     console.log('\n👋 dsh-pocket 已退出 | bye');
