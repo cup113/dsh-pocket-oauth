@@ -35,6 +35,7 @@ async function fixture(t) {
     let proxyReady = false;
     let disposed = false;
     let cleanup;
+    const injectListeners = [];
     const ctx = {
       webServer: { port: 3080 },
       connection: { rpc: { handle: (_channel, fn) => { handler = fn; return () => {}; } } },
@@ -44,6 +45,8 @@ async function fixture(t) {
         warn() {}, error() {},
       }),
       effect: (callback) => { cleanup = callback(); },
+      // 组件开关注入（webserver/index-inject）：测试直接触发监听，检查注入行
+      on: (event, fn) => { if (event === 'webserver/index-inject') injectListeners.push(fn); },
     };
     // Keep the real entry, service and RPC; only the network boundary is stubbed.
     apply(ctx, {}, {
@@ -56,6 +59,7 @@ async function fixture(t) {
     return {
       ready: () => waitFor(() => proxyReady, 'entry did not start its proxy'),
       call: (endpoint, payload = {}) => handler(endpoint, payload),
+      injectListeners: () => [...injectListeners],
       dispose,
     };
   }
@@ -117,6 +121,39 @@ test('plugin entry wires oauth.rotateSession / oauth.unbind / pocket.reset to re
   assert.equal(reset.ok, true);
   assert.equal(reset.value.oauth.configured, false, '重置后回到未配置');
   assert.equal(readOAuthConfig(), null, 'oauth.json 已清除');
+
+  await entry.dispose();
+});
+
+// 组件边界（回归）：远程操控行只服务自己的端点——手机端组件的端点（右栏开关、复制文件内容）
+// 已随旧移动端适配一起删除，在 remote 通道上仍然是未知端点，必须明确报 bad-request 而不是
+// 静默成功；status 也不携带任何手机端字段（避免将来有人把它们偷偷加回设置页）。
+test('plugin entry keeps component boundaries: mobile endpoints are not served on /dsh-pocket', async (t) => {
+  const f = await fixture(t);
+  const entry = f.mount({});
+  await entry.ready();
+
+  const s = await entry.call(POCKET_ENDPOINTS.status, {});
+  assert.equal(s.ok, true);
+  assert.equal('mobileRightbarEnabled' in s.value, false, 'status 不携带手机端组件字段（它不读写 settings.json）');
+
+  for (const endpoint of ['mobile.status', 'mobile.rightbar.setEnabled', 'mobile.fileRead']) {
+    const res = await entry.call(endpoint, { on: true, path: 'package.json' });
+    assert.equal(res.ok, false, `${endpoint} 不应由远程操控行服务`);
+    assert.equal(res.error.code, 'bad-request');
+  }
+
+  await entry.dispose();
+});
+
+// 组件开关协议已删除（回归）：远程操控行不再往页面注入标记——开关语义改由
+// 「row 是否启用 → DSH 是否把这个包的客户端产物放进图」决定，所以这里不该有注入监听。
+test('plugin entry no longer injects a component flag into the page', async (t) => {
+  const f = await fixture(t);
+  const entry = f.mount({});
+  await entry.ready();
+
+  assert.deepEqual(entry.injectListeners(), [], '不应注册任何 webserver/index-inject 监听');
 
   await entry.dispose();
 });

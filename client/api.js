@@ -1,21 +1,19 @@
-// dsh-pocket 设置页签 RPC 契约（client 与 host 共享）
+// 包级 client 产物里的共享契约与工具：
+//   - 远程操控组件的 RPC 契约（宿主 lib/web-rpc.js 也引用这一份）
+//   - 剪贴板 / 版本比较 / 排障上下文等纯函数
+// 手机端组件（子包 dsh-pocket-mobile）是纯客户端实现、不注册宿主端点，所以本包只有
+// 远程操控这一条通道——将来它若需要宿主通道，在 mobile/ 里新建自己的契约文件即可。
 export const POCKET_RPC_CHANNEL = '/dsh-pocket';
-export const MOBILE_RIGHTBAR_ATTRIBUTE = 'data-dsh-pocket-mobile-rightbar';
-export const MOBILE_RIGHTBAR_EVENT = 'dsh-pocket:mobile-rightbar';
 
 export const POCKET_ENDPOINTS = Object.freeze({
   status: 'pocket.status',
   version: 'pocket.version',
   update: 'pocket.update',
   restart: 'pocket.restart',
-  mobileRightbarSetEnabled: 'mobile.rightbar.setEnabled',
   pocketReset: 'pocket.reset',
   // OAuth 管理（loopback-only RPC 通道内调用）
   oauthRotateSession: 'oauth.rotateSession',
   oauthUnbind: 'oauth.unbind',
-  // 移动端「复制文件内容」（issue #17）：手机经此 RPC 让主机读取文件正文，
-  // 再写入剪贴板——因为手机无法直接打开电脑上的文件。
-  fileRead: 'pocket.fileRead',
 });
 
 /** 语义化版本比较：a > b 返回正数，相等 0，a < b 负数（数字段 + 预发布后缀）。 */
@@ -93,35 +91,8 @@ export function redactStatus(s) {
   };
 }
 
-/**
- * 写剪贴板（浏览器端共享实现）：优先 navigator.clipboard（安全上下文），
- * 非安全上下文（局域网 http://IP 入口）回退 execCommand——否则手机上点「复制」
- * 会静默失败。设置页与移动端文件复制共用本实现。
- * @returns {Promise<boolean>} 是否复制成功
- */
-export async function copyText(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch { /* 回退 execCommand */ }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.top = '-9999px';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
+// 剪贴板写入已移到共享层 lib/clipboard.mjs（两个组件的客户端产物都用它；
+// client/index.jsx 通过 '../lib/clipboard.mjs' 引入）。
 
 /**
  * 生成「排障上下文」markdown（纯函数、无 DOM）：用户目标 + 架构/认证模型 +

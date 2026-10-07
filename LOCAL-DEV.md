@@ -27,12 +27,37 @@ ls -l dsh-pocket
 
 | 改了哪里 | 要做什么 |
 | --- | --- |
-| `lib/**`（后端） | 直接重启 dsh web 生效 |
-| `client/**`（前端源码） | 先 `node client/build.mjs` 打包，再重启 dsh web |
+| `lib/**`（远程操控组件的宿主半边 + 传输层/设置模块） | 直接重启 dsh web 生效 |
+| `mobile/index.js`（手机端组件的宿主半边，空壳） | 直接重启 dsh web 生效 |
+| `client/**`（远程操控的客户端产物源码） | 先 `npm run build:client` 打包，再刷新页面 |
+| `mobile/client/**`（手机端 WebUI 的客户端源码：`styles.js` / `responsive-shell.js` / `settings-adapter.js` / `index.jsx`） | 先 `npm run build:client` 打包成 `mobile/client/client.js`，再刷新页面 |
+| `mobile/package.json`、`mobile/locale/**`（面板那条 row 的包身份与标题描述） | 重启 dsh web 生效（无产物要打） |
+| `package.json` 里的子包依赖 / 软链（`node_modules/dsh-pocket-mobile`、`node_modules/dsh-pocket`） | 跑 `node scripts/link-mobile-package.mjs` 复原（`npm run build:client` 里也带） |
 
 ```sh
-node client/build.mjs     # 只改后端可跳过
+npm run build:client      # 打包客户端产物 + 复原仓库内软链（只改后端可跳过）
 npm test                  # 建议顺手跑一遍（沙箱内 `node --test` 会被拒时，改为逐文件 node test/xxx.test.js）
+```
+
+> **为什么仓库里会有 `node_modules` 软链**：手机端组件是包内子包 `dsh-pocket-mobile`（`mobile/` 是它的源码），面板那条 row 的名字必须解析得到这个包，所以 `node_modules/dsh-pocket-mobile -> ../mobile` 是打包时被解引用进安装物的那条软链。它声明了 `dsh.client`、带客户端产物 `mobile/client/client.js`，软链与 `file:` 依赖照旧保留。
+> `node_modules/dsh-pocket -> ..` 是开发态自引用：**当前没有引用者**，留给将来移动端宿主半边（子包里的 `import 'dsh-pocket/lib/*'` 需要它才能在开发态解析）。
+> `npm install` / `npm ci` 会把这两条换成副本或删掉，所以构建/测试前一定先跑 `scripts/link-mobile-package.mjs`（`npm run build:client`、`npm test` 的 pretest 都会自动跑）。
+
+### 两个组件怎么验证
+
+包里有两条 Loader row（`cordis.patch.yml`），装好后在 **侧边栏 → 插件 → dsh-pocket** 卡片里应能看到「包含的组件 共 2 个」与两个独立开关：
+
+| 组件行 | 期望 |
+| --- | --- |
+| `dsh-pocket`（远程操控） | 关掉后 3081 不再监听、设置里没有「手机访问」；页面/手机端照常打开官方界面 |
+| `dsh-pocket-mobile`（手机端 WebUI） | 面板里有「配置」按钮，可开关遮罩、输入框优化、设置分步导航；**把浏览器窗口缩到 1024px 以下**即可看到移动端排版（左上汉堡按钮 → 抽屉侧边栏） |
+| 只开手机端 | 窄屏排版生效；远程操控那半边的功能（代理 / OAuth）不可用 |
+
+改了 `cordis.patch.yml` 的行结构后，可以先不重启、只用 CLI 验证组合结果：
+
+```sh
+dsh --profile web --dump-config | grep -A 3 '== dsh-pocket'
+# 期望看到两条：- id: dsh-pocket / - id: dsh-pocket-mobile（都是裸包名）
 ```
 
 ### 重启 dsh web
@@ -99,12 +124,14 @@ grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
 
 - **软链期间，你日常用的 dsh web 跑的都是本地仓库代码**（包括未提交的改动），而别人通过 npm 装到的仍是发布版——两边互不影响。
 - 本地仓库需要装过依赖（`npm install`），否则 `lib/` 用到的 `cordis` / `cosmokit` 等解析不到，插件会静默加载失败。
-- 改完 `client/` 忘了打包，界面不会变（dsh web 加载的是 `client/client.js` 产物，不是 `index.jsx` 源码）。
+- 改完 `client/` 或 `mobile/client/` 忘了打包，界面不会变（dsh web 加载的是 `client/client.js` 与 `mobile/client/client.js` 产物，不是 `.jsx` / `.js` 源码）。
 - 电脑重启后自己正常启动 dsh web 即可，软链是持久的，仍然加载本地代码。
 
 ## 常见问题
 
-**手机页面没变化**：多半是忘了 `node client/build.mjs`，或 dsh web 没重启成功（看 `/tmp/dsh-web-dev.log`）。
+**手机页面没变化**：先确认 dsh web 重启成功（看 `/tmp/dsh-web-dev.log`）；如果改的是 `client/**` 或 `mobile/client/**`，多半是忘了 `npm run build:client`，再刷新页面（客户端产物的进出在下一次页面加载时生效）。
+
+**手机上是桌面排版、没有汉堡按钮**：移动端排版只在窗口宽度 < 1024px 时生效（与 DSH 框架折叠侧边栏的断点一致）。桌面浏览器把窗口缩窄即可复现；手机上先用「插件 → dsh-pocket」卡片确认 `dsh-pocket-mobile` 是开着的。
 
 **代理端口 3081 起不来**：插件没加载成功。检查软链路径是否正确、仓库依赖是否装好；也可以 `curl -s http://127.0.0.1:3080/` 看返回的 HTML 里有没有 `dsh-pocket/client.js`。
 

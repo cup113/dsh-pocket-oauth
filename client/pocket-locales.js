@@ -1,4 +1,4 @@
-// dsh-pocket 设置页签 i18n 词典（与 client/mobile/locales.ts 同款：zh 为源真，en 为译文）。
+// dsh-pocket 设置页签 i18n 词典（zh 为源真，en 为译文）。
 // 需要新增字符串时：先加到 zh（key-set 唯一来源），再补 en（key 必须与 zh 完全一致）。
 export const NS = 'pocket'
 
@@ -65,13 +65,11 @@ export const zh = {
   'rotatedDone': '✅ 已登出所有设备',
   'unbindDone': '✅ 已解除绑定',
   'securityNote': '⚠️ dsh web 能执行代码：只绑定自己的账号（Gitee / GitHub），勿把访问地址交给不信任的人。',
-  'mobileRightbar': '手机端右边栏',
-  'mobileRightbarHint': '显示原生右边栏入口；普通手机可按需关闭，折叠屏展开后使用更方便',
   'resetFactory': '🧹 恢复出厂设置',
   'resetGo': '恢复',
   'resetIntro': '设置搞出问题时的临时兜底：清空本机设置与 OAuth 配置（Gitee / GitHub 凭据与绑定；DSH 的会话、模型、插件配置不受影响）',
   'resetTitle': '⚠️ 确认恢复出厂设置？',
-  'resetBody': '将清空并恢复默认：\n① 设置文件（含代理端口、手机端右边栏开关）\n② OAuth（Gitee / GitHub）：Client 凭据、回调白名单与账号绑定全部清除\n③ 会话：所有已登录设备立即失效\n\nDSH 自身的会话、模型、插件配置不受影响；此操作不可撤销。',
+  'resetBody': '将清空并恢复默认：\n① 设置文件（含代理端口）\n② OAuth（Gitee / GitHub）：Client 凭据、回调白名单与账号绑定全部清除\n③ 会话：所有已登录设备立即失效\n\nDSH 自身的会话、模型、插件配置不受影响；此操作不可撤销。',
   'resetConfirm': '确认恢复',
   'resetDone': '✅ 已恢复出厂设置：请在本机重新完成初始化',
   'resetFailed': '❌ 恢复失败，请重试',
@@ -143,13 +141,11 @@ export const en = {
   'rotatedDone': '✅ Signed out all devices',
   'unbindDone': '✅ Account unbound',
   'securityNote': '⚠️ dsh web can execute code: bind only your own account (Gitee / GitHub) and never share the access URL with untrusted people.',
-  'mobileRightbar': 'Mobile right sidebar',
-  'mobileRightbarHint': 'Show the native right-sidebar entry; disable it for a compact phone header or keep it on for an unfolded display',
   'resetFactory': '🧹 Factory reset',
   'resetGo': 'Reset',
   'resetIntro': 'Temporary fallback when settings break: clear local settings and the OAuth config (Gitee / GitHub credentials and binding; DSH sessions, models and plugin config are untouched)',
   'resetTitle': '⚠️ Confirm factory reset?',
-  'resetBody': 'This clears and restores defaults:\n① Settings file (proxy port, mobile right-sidebar switch)\n② OAuth (Gitee / GitHub): client credentials, callback allowlist and account binding are all cleared\n③ Sessions: every signed-in device is immediately logged out\n\nYour DSH sessions, models and plugin config are untouched. This cannot be undone.',
+  'resetBody': 'This clears and restores defaults:\n① Settings file (proxy port)\n② OAuth (Gitee / GitHub): client credentials, callback allowlist and account binding are all cleared\n③ Sessions: every signed-in device is immediately logged out\n\nYour DSH sessions, models and plugin config are untouched. This cannot be undone.',
   'resetConfirm': 'Reset',
   'resetDone': '✅ Factory reset done — run setup again on this machine',
   'resetFailed': '❌ Reset failed — please retry',

@@ -1,0 +1,23 @@
+{
+  "name": "dsh-pocket-mobile",
+  "version": "2.10.6",
+  "private": true,
+  "description": "专为手机触屏与窄屏深度优化的移动端 WebUI 体验",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client/client.js",
+    "./locale/*": "./locale/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "layout"
+      ]
+    }
+  }
+}

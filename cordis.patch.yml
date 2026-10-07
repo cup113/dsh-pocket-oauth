@@ -1,5 +1,29 @@
 # dsh-pocket bundle patch（dsh.bundle manifest 要求的加载配置）
-# 单包单插件：装一次，设置页「手机访问」全部功能到位。
+#
+# 单包两条 Loader row，在插件面板里各有一个独立开关：
+#   - dsh-pocket         远程操控：单端口代理 + Gitee/GitHub OAuth + 设置页「手机访问」
+#   - dsh-pocket-mobile  手机端 WebUI：窄屏（< 1024px）自动生效的抽屉侧边栏、全局面板返回键、
+#                        两级设置导航、触屏输入框、Plan / 审批卡片（也可以整条关掉）
+#
+# 为什么第二条 row 必须是**另一个包**（而不是 dsh-pocket/mobile 这种子路径名）：
+#   - 行名要能被解析成包：子路径名（含 `/`）不是裸包名，面板拿不到元数据、Loader 也解析不到；
+#   - 行名指向根包 dsh-pocket 会让两条 row 同名（DSH 会报 resolves from multiple Loader sources）。
+# 所以手机端组件按包内子包交付：
+#
+#   mobile/                                子包 dsh-pocket-mobile（空壳宿主入口 index.js + locale 元数据
+#                                          + 自己的 dsh.client 客户端半边 client/client.js）
+#   node_modules/dsh-pocket-mobile         → ../mobile 的软链（提交在 git，打包时被解引用）
+#   package.json dependencies              "dsh-pocket-mobile": "file:./mobile"
+#   package.json bundledDependencies       ["dsh-pocket-mobile"]（git 安装随包一起落地）
+#
+# 子包 manifest 自己声明 dsh.client，DSH 因此把它当客户端包：那条 row 有自己的「配置」页
+# （遮罩 / 输入框优化 / 设置分步导航三个开关）。客户端产物由 client/build.mjs 的第二个
+# TARGETS 目标打包，源码在 mobile/client/。
+#
+# 两条 row 的名字都是**裸包名**，所以开关覆盖在插件升级后依然稳定生效（id/name 从未变过）。
 - insert:
     - id: dsh-pocket
       name: dsh-pocket
+
+    - id: dsh-pocket-mobile
+      name: dsh-pocket-mobile

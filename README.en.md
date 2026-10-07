@@ -49,11 +49,24 @@ What it looks like — the phone shows the exact same UI as your computer, live:
 | 🧘 Session persistence   | Signing in sets an HttpOnly session cookie (30 days) — **no repeated prompts**; sessions are bound to the dsh web process (**restart/update ⇒ sign in again**)                                                |
 | 🚪 Sign out everywhere   | One click rotates the process-level session key, instantly invalidating every signed-in device                                                                                                               |
 | ⚡ Real-time sync        | Streaming rides a fully transparent WebSocket — **output on the computer scrolls on the phone**; built-in heartbeat keeps NAT/idle drops from silently killing the link (auto-reconnect)                      |
-| 📱 Mobile layout         | Narrow screens become a drawer layout (ported from dsh-web-mobile, MIT): sidebar drawer, full-width sessions, safe-area handling, touch tuning                                                                 |
-| 🧭 Optional right bar    | Show the native right-sidebar entry on phones; disable it for a compact header, or keep it for unfolded devices                                                                                              |
-| 📁 File browsing         | The mobile "files" entry needs the explorer panel from a dsh-web-ui component; it hides itself when the host doesn't provide one                                                                              |
 | 🗜️ Compression           | Large JSON responses are gzip/brotli'd (17MB session → ~1MB; brotli q6: fast and small)                                                                                                                      |
-| 🧩 No extra service      | One npm package, one settings tab; no server or relay of your own (sign-in uses your own Gitee / GitHub account)                                                                                              |
+| 🧩 No extra service      | One npm package (Remote access + the Mobile Web UI component); no server or relay of your own (sign-in uses your own Gitee / GitHub account)                                                                  |
+| 📱 Phone UI              | The phone shows the same official UI as the computer (one `dsh web`, live-mirrored) and automatically gets the narrow-screen treatment: drawer sidebar, two-level settings navigation, touch composer, Plan review cards |
+
+### 🧩 Two components, switched independently
+
+The package ships two components, and installing/updating stays a single command. Each has its own switch on the **Sidebar → Plugins → dsh-pocket** card:
+
+| Component | Owns | Switched off |
+| --- | --- | --- |
+| `dsh-pocket` (Remote access) | Single-port proxy, Gitee/GitHub OAuth, origin QR codes, update/restart | The proxy stops listening (3081 closes) and there is no "Phone access" tab; the phone can still reach the official UI directly (LAN / tunnel to your local dsh web) |
+| `dsh-pocket-mobile` (Mobile Web UI) | Active below 1024px: drawer sidebar, panel exit button, two-level settings navigation, touch composer, Plan / approval cards | The phone gets the plain desktop layout (56px icon rail with no way to expand it, settings columns squeezed) |
+
+> **The mobile component ships its own client bundle**: the subpackage `dsh-pocket-mobile` (source in `mobile/`, installed together with the package) declares `dsh.client`, and `client/build.mjs` compiles its browser half into `mobile/client/client.js` — so that row has a **Configure** page where the backdrop, composer optimisation and stepped settings navigation can be turned off.
+>
+> The switch writes the row's `disabled` override into the profile's `cordis.patch.yml` (the native DSH mechanism): the **host half starts/stops immediately**, while a client bundle enters or leaves the graph on the next page load — refresh once after switching.
+
+Settings only keeps Remote access ("Phone access": proxy / OAuth / QR / update / restart); there is **no** mobile-UI tab — the mobile tweaks live on the **Plugins → dsh-pocket** card.
 
 ## 🚀 Getting started
 
@@ -160,26 +173,38 @@ Open `https://your-fixed-domain` on the phone → tap "**Sign in with Gitee**" (
 - Live screen mirroring works in DSH Desktop; **updates/restarts are managed by the desktop app** (those two actions are disabled inside the plugin)
 - ⚠️ Desktop **advanced mode** does not support phone access yet (it disables the web layout, leaving the phone without a layout service → blank screen). Switch back to **compatibility** and restart; in advanced mode the phone shows an explicit notice overlay
 
-## 🗂 Architecture (single package)
+## 🗂 Architecture (one package, two client bundles)
+
+> Both `dsh.bundle` and `dsh.client` are **package-level** declarations. The Mobile Web UI is delivered as an **in-package subpackage** (`mobile/` = `dsh-pocket-mobile`) which declares `dsh.client` itself and ships its own browser half, so the panel card carries two independently switchable components and the mobile one has a **Configure** page. Delivery mechanism: the repo commits a `node_modules/dsh-pocket-mobile -> ../mobile` symlink and declares `dependencies: {"dsh-pocket-mobile": "file:./mobile"}` plus `bundledDependencies`, so a git install (`dsh plugin add` / pnpm) dereferences it into the installed package.
 
 | File                 | Purpose                                                                                                                                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib/index.js`       | Plugin entry: starts the proxy, registers RPC, owns the OAuth session key (rotation = sign out everywhere) plus bind/unbind/factory reset, desktop env adaptation                |
+| `lib/index.js`       | **Remote access** entry (row `dsh-pocket`): starts the proxy, registers RPC, owns the OAuth session key (rotation = sign out everywhere) plus bind/unbind/factory reset, desktop env adaptation |
 | `lib/oauth.mjs`      | OAuth core: provider table (Gitee / GitHub endpoints, scope, user-fetch style), config store (`oauth.json`, 0600, includes the provider), state store (single-use + TTL, carries the provider), callback-origin allowlist checks, authorize/token/user calls, session cookie derivation |
 | `lib/service.mjs`    | Service: proxy lifecycle (auto port fallback), status snapshot (OAuth view + a QR per allowlisted origin + LAN IP candidates)                                                    |
 | `lib/proxy.mjs`      | Header-rewriting reverse proxy: Host/Origin → loopback, transparent HTTP + WebSocket, polyfill injection, gzip/brotli, and the **auth gate** (loopback free / OAuth session otherwise, fail closed) plus `/pocket-oauth/*` and `/pocket-setup` routes |
-| `lib/settings.mjs`   | Settings persistence: proxy port + mobile right bar (`$DSH_HOME/dsh-pocket/settings.json`)                                                                                      |
-| `lib/web-rpc.js`     | Loopback RPC: `status` / `oauth.rotateSession` / `oauth.unbind` / `mobile.rightbar.setEnabled` / `version` / `update` / `restart` / `pocket.reset` / `pocket.fileRead`             |
-| `client/`            | "Phone access" settings tab (setup guide + binding status + QR codes) and mobile adaptation (ported from dsh-web-mobile)                                                         |
+| `lib/rpc-route.js`   | RPC transport (used by `lib/web-rpc.js`): webserver mount / `rpc.handle` fallback / trust fence / 4xx-5xx branches (branch-for-branch with dsh-client-connection's `/api`); a future mobile host half can reuse it via `dsh-pocket/lib/rpc-route.js` |
+| `lib/settings.mjs`   | Settings persistence: proxy port → `$DSH_HOME/dsh-pocket/settings.json` (a legacy `mobileRightbarEnabled` orphan key is no longer read or written; a factory reset clears it)    |
+| `lib/clipboard.mjs`  | Clipboard write (inlined into the client bundle at build time): `navigator.clipboard` with an `execCommand` fallback                                                              |
+| `lib/web-rpc.js`     | Remote access loopback RPC (channel `/dsh-pocket`): `status` / `oauth.rotateSession` / `oauth.unbind` / `version` / `update` / `restart` / `pocket.reset`                          |
+| `client/`            | The **Remote access** client artifact (`dsh.client` → `client/client.js`): `index.jsx` only wires the "Phone access" settings tab and the `isLoopback` fallback; `api.js` holds its contract and helpers |
+| `mobile/`            | The **Mobile Web UI** subpackage `dsh-pocket-mobile`: `index.js` is a do-nothing host entry (all UI lives in the browser half), `locale/` supplies the panel row title/description, `package.json` declares the package identity and `dsh.client` |
+| `mobile/client/styles.js` | The **single source** of the mobile stylesheets (CSS as JS string exports): `shellCss` frame/drawer geometry and the global-panel exit button, `settingsCss`, `composerCss`, `planCss`, `touchCss`. Deliberately not `.css` imports — the native `node --test` runner cannot import CSS |
+| `mobile/client/responsive-shell.js` | Viewport breakpoint (1024, matching the `ui-layout` sidebar auto-collapse point), style injection and prefs projection, drawer backdrop and idempotent open/close (reads the framework's `[data-sidebar-collapsed]` before deciding whether to call `toggleSidebar`), and auto-close that only recognises *navigation*: a session row being activated, or the main column's identity actually changing — expanding a Workspace or opening a `⋯` menu never closes the drawer |
+| `mobile/client/settings-adapter.js` | Settings dialog two-level navigation adapter: directory ↔ detail state, injected "back to settings" bar, gated by the stepped-navigation switch |
+| `mobile/client/index.jsx` | Plugin entry: registers the hamburger into `conversation.header.leading`, registers the global-panel exit button into `shell.overlay` (when a panel takes over the main column the conversation — and with it the hamburger — is not rendered at all, so this is the only way back on a phone), installs the two adapters above, registers the **Configure** page |
+| `scripts/link-mobile-package.mjs` | Maintains the two repo symlinks (the bundled subpackage and the dev self-reference): `npm install` / `npm ci` replace or delete them, so builds and tests restore them first |
 | `bin/dsh-pocket.mjs` | CLI: runs the same proxy and OAuth config standalone (`--port` / `--host`)                                                                                                      |
 
 ## 🛠 Development
 
 ```sh
 npm install
-node client/build.mjs   # rebuild the client bundle after editing client/
-npm test                # proxy / OAuth / compression / handshake / service / RPC / settings / mobile
+npm run build:client    # rebuild both client bundles (client/client.js, mobile/client/client.js) and restore the repo symlinks
+npm test                # proxy / OAuth / compression / handshake / service / RPC / settings / mobile UI / packaging
 ```
+
+> Editing `client/**` or `mobile/client/**` (or the `lib/*.mjs` files they import) requires a rebuild: both bundles are committed and `npm test` byte-compares a fresh build against them, so tests can never validate a stale artifact.
 
 > In sandboxed environments `node --test` is refused (it spawns one child per test file with piped stdio): run files directly instead, e.g. `node test/xxx.test.js`. Bundling has the same constraint (the esbuild JS API spawns a child) — use the esbuild CLI and then wrap the output.
 
@@ -188,14 +213,14 @@ npm test                # proxy / OAuth / compression / handshake / service / RP
 ## 🤝 Credits
 
 - This project is a rework of [shaobeichen/dsh-pocket](https://github.com/shaobeichen/dsh-pocket) by 程序员少北晨: the access PIN is replaced with **Gitee / GitHub OAuth sign-in** (pick one during setup) and the built-in tunnel was removed (bring your own)
-- Mobile adaptation ported from [mexiaosqwq/dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile) (MIT)
+- The old narrow-screen mobile adaptation was ported from [mexiaosqwq/dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile) (MIT); that implementation broke with an official Web UI update and was removed entirely (sources and notice file deleted). The current Mobile Web UI is a rewrite built on DSH's existing slot contract: the hamburger registers into `conversation.header.leading`, the drawer geometry targets `AppFrame`'s real column class names, and nothing depends on DOM structure upstream has since changed
 - Sign-in is built on [Gitee OAuth 2.0](https://gitee.com/api/v5/oauth_doc) and [GitHub OAuth apps](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
 
 ## 📄 License
 
 [GPL-2.0](LICENSE) — free software: use, modify and redistribute freely, but **modified versions must stay GPL-licensed** with the copyright notice preserved; commercial use included.
 
-> The mobile adaptation is ported from [dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile) (MIT, GPL-compatible); its notice is kept in `client/mobile/LICENSE.dsh-web-mobile`.
+> Note: this repo once ported the dsh-web-mobile (MIT, GPL-compatible) mobile adaptation under `mobile/`; that directory was emptied when the official Web UI changed, and its notice file was deleted together with the original code. The current Mobile Web UI is a rewrite built on DSH's existing slot contract; if third-party mobile code is ever brought in again, bring its license and notice along with it.
 
 ---
 

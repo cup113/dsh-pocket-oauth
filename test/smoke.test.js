@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -85,72 +86,34 @@ test('真实链路：RPC status 走真实 service（含 restartNotice）', async
   }
 });
 
-test('client bundle 注入 React 绑定（PR #1 回归：mobile 组件曾 React is not defined）', async () => {
+/** 远程操控的客户端产物（手机端组件另有一份 mobile/client/client.js，由手机端用例覆盖）。 */
+function remoteBundle() {
+  return readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+}
+
+test('client bundle 注入 React 绑定（回归：JSX 渲染需要 factory 里的 React）', async () => {
   // DSH 模块系统提供 react 为模块、非全局；esbuild classic JSX 生成 React.createElement，
-  // 若 factory 不绑定 React，mobile 组件（抽屉布局）渲染即崩、移动端适配永远不激活。
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
-  assert.ok(src.includes('var React = require("react")'), 'factory 注入 React 绑定');
-  // 匹配实际调用形式（带左括号），避免命中 build.mjs 注释里的字面量
-  assert.ok(src.includes('React.createElement('), 'bundle 内存在 JSX 编译产物（需要 React 绑定）');
-  const injectIdx = src.indexOf('var React = require("react")');
-  const createIdx = src.indexOf('React.createElement(');
-  assert.ok(injectIdx !== -1 && createIdx !== -1 && injectIdx < createIdx, 'React 声明先于使用');
+  // 若 factory 不绑定 React，任何 JSX 组件渲染即崩（"React is not defined"）。
+  const src = remoteBundle();
+  assert.ok(src.includes('var React = require("react")'), '产物：factory 注入 React 绑定');
 });
 
 test('client bundle：status 访问必须可选链（回归：1.9.0 白屏——首次渲染 status=null 时裸 status.oauth 抛 TypeError）', async () => {
   // load() 是异步的：首次渲染时 status 为 null。远程访问区块渲染在安全分支之外，
   // 裸访问 status.oauth → React 整树崩溃 → 设置页白屏。
   // 修复：全部 status?.oauth。此测试防止再次出现裸访问（esbuild 会原样保留 ?.）。
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+  const src = remoteBundle();
   assert.ok(!src.includes('status.oauth'), 'bundle 不允许裸 status.oauth（必须可选链）');
   assert.ok(src.includes('status?.oauth'), 'bundle 存在可选链访问');
 });
 
-test('移动导航 backdrop（issue #38）：点击穿透不抢抽屉内点击 + 抽屉外点击关闭保留', async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
-  // CSS：backdrop 必须 pointer-events: none（纯压暗层，不接收点击）
-  const css = src.match(/\[data-mobile-nav="backdrop"\][^}]*}/)?.[0] ?? '';
-  assert.ok(css.includes('pointer-events: none'), 'backdrop 点击穿透');
-  // JSX：backdrop 是纯视觉 div（无 role/onClick）
-  assert.ok(src.includes('"data-mobile-nav": "backdrop"'), 'backdrop 纯视觉渲染');
-  // 关闭逻辑：抽屉内导航关闭 + 抽屉外点击关闭（两套 document capture contains 处理）
-  assert.ok((src.match(/contains\(target\)/g) || []).length >= 2, '存在抽屉内外两套点击处理');
-  // 抽屉层级（PR #42 / issue #67）：必须高于第三方插件对 shell overlay 层的
-  // 抬升（500），也要压过 @linxin666/dsh-web-ui-all 的移动端层（sidebar pane
-  // 1100、details pane 1000、frame ::after 全屏遮罩 1050）。
-  // 直接断言 bundle 中抽屉规则的 z-index: 1200（若退回 40/600 则此处失败）
-  assert.ok(
-    src.includes('z-index: 1200 !important'),
-    '抽屉 z-index 1200（高于 overlay 抬升 500 与 web-ui-all 的 1100/1050）',
-  );
-  assert.ok(!src.includes('z-index: 40 !important'), '不再用 40（会被第三方抬升的 overlay 盖住）');
-  assert.ok(!src.includes('z-index: 600 !important'), '不再用 600（会被 web-ui-all 的 1050 遮罩盖住）');
-});
-
 test('远程访问管理（v3）：bundle 提供 OAuth 登出所有设备 / 解除绑定的确认弹框与 RPC 调用', async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+  const src = remoteBundle();
   assert.ok(src.includes('oauth.rotateSession'), 'bundle 含会话轮换 RPC');
   assert.ok(src.includes('oauth.unbind'), 'bundle 含解绑 RPC');
 });
 
-test('文件浏览（issue #48）：宿主无 aionui explorer 时隐藏入口；点 Files 关抽屉', async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
-  // 检测逻辑：frame 打 data-mobile-nav-explorer 标记
-  assert.ok(src.includes('data-mobile-nav-explorer'), '存在 explorer 可用性检测标记');
-  // 隐藏 CSS：无 explorer 时隐藏 files/explorer 入口
-  assert.ok(src.includes('[data-mobile-nav-explorer="0"] [data-mobile-nav="files"]'), '无 explorer 隐藏 header Files');
-  assert.ok(src.includes('[data-mobile-nav-explorer="0"] [data-mobile-nav="explorer"]'), '无 explorer 隐藏 drawer 入口');
-  // 点 Files 关闭抽屉（抽屉 z600 会盖住 explorer sheet，且 sheet 外点击会被吃掉）
-  assert.ok(src.includes('[data-mobile-nav="files"]'), 'Files 纳入抽屉内导航关闭');
-});
-
 test('Windows 更新 spawn（PR #54）：受管子进程的 spawn 必须带 shell 选项', async () => {
-  const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
   const at = src.indexOf('function spawnManaged(');
   assert.ok(at > 0, '存在统一的受管子进程封装');
@@ -163,8 +126,7 @@ test('Windows 更新 spawn（PR #54）：受管子进程的 spawn 必须带 shel
 test('更新机制（GitHub 化）：版本检查只打本仓库 main，不再打 npm 原版的包名', async () => {
   // npm 上的 dsh-pocket 是**原版**（PIN 模型）。若版本检查回到 npm registry，
   // 原版一发新版就会诱导用户点「更新」，把插件整体换成另一个应用。
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8');
+  const src = remoteBundle();
   assert.ok(
     src.includes('raw.githubusercontent.com/cup113/dsh-pocket-oauth/main/package.json'),
     '版本源 = 本仓库 main 的 package.json',
@@ -173,4 +135,45 @@ test('更新机制（GitHub 化）：版本检查只打本仓库 main，不再�
   assert.ok(src.includes('originsGroupPublic'), '二维码分区（本机/局域网 vs 公网）已进产物');
   assert.ok(src.includes('copyContext'), '「复制排障上下文」入口已进产物');
   assert.ok(src.includes('execCommand'), '非安全上下文剪贴板兜底已进产物（设置页复制不再静默失败）');
+});
+
+test('产物同步：客户端产物必须与源码构建结果逐字节一致（否则测试在验旧产物）', async () => {
+  // 本仓库把 esbuild 产物纳入版本控制，而下面若干测试直接读它断言行为——
+  // 源码改了却没重建时，那些测试会对着旧产物「全绿」，形成假信心。
+  // 这里把产物构建到临时目录再比对，保证测的永远是当前源码。
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const tmpDir = await mkdtemp(join(tmpdir(), 'dsh-pocket-build-'));
+  const targets = [
+    {
+      label: 'client/client.js',
+      out: join(tmpDir, 'client.js'),
+      env: 'DSH_POCKET_CLIENT_OUT',
+      committed: new URL('../client/client.js', import.meta.url),
+    },
+    {
+      label: 'mobile/client/client.js',
+      out: join(tmpDir, 'mobile-client.js'),
+      env: 'DSH_POCKET_MOBILE_CLIENT_OUT',
+      committed: new URL('../mobile/client/client.js', import.meta.url),
+    },
+  ];
+  try {
+    for (const target of targets) {
+      await promisify(execFile)(process.execPath, ['client/build.mjs'], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        env: { ...process.env, [target.env]: target.out },
+        timeout: 60_000,
+      });
+      const [fresh, onDisk] = await Promise.all([readFile(target.out), readFile(target.committed)]);
+      assert.ok(
+        fresh.equals(onDisk),
+        `${target.label} 与源码不同步——先跑 npm run build:client（npm test 的 pretest 会自动跑）`,
+      );
+    }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });

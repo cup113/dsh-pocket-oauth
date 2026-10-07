@@ -1,4 +1,5 @@
-// 设置持久化测试（v3：settings.mjs 只剩 mobileRightbarEnabled / proxyPort / reset）
+// 设置持久化测试（v4：settings.mjs 只剩 proxyPort / reset —— 手机端右边栏开关随旧适配删除）
+// 历史遗留文件里的孤儿键（如 mobileRightbarEnabled）不再被读写，见下面第二个用例。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, readFileSync, statSync } from 'node:fs';
@@ -19,17 +20,18 @@ async function withHome(fn) {
   }
 }
 
-test('手机端右边栏默认开启，可关闭并持久化', () => withHome(async () => {
-  const { mobileRightbarEnabled, setMobileRightbarEnabled, settingsPath } = await import('../lib/settings.mjs');
-  assert.equal(mobileRightbarEnabled(), true, '默认开启');
-  assert.equal(setMobileRightbarEnabled(false), false, '返回关闭状态');
-  assert.equal(mobileRightbarEnabled(), false, '关闭后立即生效');
+test('遗留孤儿键（mobileRightbarEnabled）不被读写，代理端口写入时保持原样', () => withHome(async () => {
+  const { settingsPath, setProxyPort, proxyPort } = await import('../lib/settings.mjs');
+  // 模拟升级前留下的设置文件
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  mkdirSync(dirname(settingsPath()), { recursive: true });
+  writeFileSync(settingsPath(), JSON.stringify({ mobileRightbarEnabled: false }, null, 2));
+  assert.equal(proxyPort(), 0, '孤儿键不影响新设置项');
+  assert.equal(setProxyPort(3082), 3082);
   const raw = JSON.parse(readFileSync(settingsPath(), 'utf8'));
-  assert.equal(raw.mobileRightbarEnabled, false, 'settings.json 内容正确');
-  assert.equal(setMobileRightbarEnabled(true), true, '可再次开启');
-  if (process.platform !== 'win32') {
-    assert.equal(statSync(settingsPath()).mode & 0o777, 0o600, '权限 0600');
-  }
+  assert.equal(raw.proxyPort, 3082, '新字段正常落盘');
+  assert.equal(raw.mobileRightbarEnabled, false, '孤儿键不动（不读不写，交给恢复出厂设置清理）');
 }));
 
 test('代理端口（issue #70）：默认 0（用 3081）；持久化、清除', () => withHome(async () => {
@@ -39,6 +41,9 @@ test('代理端口（issue #70）：默认 0（用 3081）；持久化、清除'
   assert.equal(proxyPort(), 3082, '重新读取仍生效');
   const raw = JSON.parse(readFileSync(settingsPath(), 'utf8'));
   assert.equal(raw.proxyPort, 3082, 'settings.json 字段正确');
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(settingsPath()).mode & 0o777, 0o600, '新建设置文件权限 0600');
+  }
   assert.equal(setProxyPort(0), 0, '传 0 清除');
   assert.equal(proxyPort(), 0, '清除后回到默认');
   assert.equal(setProxyPort('garbage'), 0, '字符串非法值清除');
@@ -53,7 +58,6 @@ test('恢复出厂设置：resetSettings 清空设置文件；resetPocketState �
   const oauth = await import('../lib/oauth.mjs');
   const { resetPocketState, rotateSessionKey } = await import('../lib/index.js');
 
-  settings.setMobileRightbarEnabled(false);
   settings.setProxyPort(3099);
   oauth.writeOAuthConfig({
     clientId: 'cid', clientSecret: 'sec',
@@ -66,7 +70,6 @@ test('恢复出厂设置：resetSettings 清空设置文件；resetPocketState �
   assert.deepEqual(view, { provider: 'gitee', configured: false, callbackOrigins: [], bound: false, boundLogin: null }, '重置后视图回到未配置');
   assert.equal(existsSync(settings.settingsPath()), false, '设置文件已删除');
   assert.equal(oauth.readOAuthConfig(), null, 'OAuth 配置已清除');
-  assert.equal(settings.mobileRightbarEnabled(), true, '开关回到默认');
   assert.equal(settings.proxyPort(), 0, '端口回到默认');
   assert.equal(rotateSessionKey(), true, '会话密钥同时轮换');
 }));

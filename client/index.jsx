@@ -1,15 +1,19 @@
-// dsh-pocket 网页客户端：
-//   1. 设置页签「手机访问」（Gitee OAuth 绑定状态 + 访问地址二维码 + 更新/重启提示）
-//   2. 移动端适配（移植自 MIT 项目 dsh-web-mobile，见 client/mobile/LICENSE.dsh-web-mobile）
+// dsh-pocket 网页客户端 —— 根包（dsh-pocket）的 client 产物，只装「远程操控」组件：
+//   1. 设置页签「手机访问」：代理状态 / OAuth 绑定 / 二维码 / 更新 / 重启 / 排障
+//   2. 非本机浏览器的 isLoopback 兜底
 //
-// 手机扫码打开的就是电脑上的 dsh web，实时同步；窄屏自动变成抽屉布局。
+// 手机端 WebUI 是**另一个包**（包内子包 dsh-pocket-mobile，源码在 mobile/）：它自带客户端
+// 产物与自己的「配置」页。两条 Loader row 在插件面板里各有一个开关，关掉任一个都只影响
+// 自己那一半。
+//
+// 手机扫码打开的就是电脑上的 dsh web，实时同步。
 // 认证 = Gitee OAuth（v3）：本机一次初始化绑定账号，手机经任意白名单地址
 // 用同一账号登录即获得会话（代替旧 PIN）。
 
 import { createElement as h, useEffect, useRef, useState } from 'react';
 
-import { POCKET_RPC_CHANNEL, POCKET_ENDPOINTS, MOBILE_RIGHTBAR_ATTRIBUTE, MOBILE_RIGHTBAR_EVENT, redactStatus, compareVersions, fallbackKind, copyText, buildTroubleshootingContext } from './api.js';
-import { mobileApply } from './mobile/mobile-apply.tsx';
+import { POCKET_RPC_CHANNEL, POCKET_ENDPOINTS, compareVersions, fallbackKind, buildTroubleshootingContext } from './api.js';
+import { copyText } from '../lib/clipboard.mjs';
 import { NS as POCKET_NS, zh as POCKET_ZH, en as POCKET_EN } from './pocket-locales.js';
 
 const name = 'dsh-pocket';
@@ -55,12 +59,6 @@ const styles = {
   warn: { color: 'var(--dsw-alias-state-warn-primary,#b45309)', fontSize: 12, lineHeight: 1.5 },
 };
 
-function applyMobileRightbarSetting(enabled) {
-  const on = enabled !== false;
-  document.body?.setAttribute(MOBILE_RIGHTBAR_ATTRIBUTE, on ? 'on' : 'off');
-  window.dispatchEvent(new CustomEvent(MOBILE_RIGHTBAR_EVENT, { detail: { enabled: on } }));
-}
-
 function PocketSettingsTab({ rpcCall, t }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -88,7 +86,6 @@ function PocketSettingsTab({ rpcCall, t }) {
     try {
       const s = await call(POCKET_ENDPOINTS.status, {});
       setStatus(s);
-      applyMobileRightbarSetting(s.mobileRightbarEnabled);
       if (s.desktop) setIsDesktop(true);
       if (s.restartNotice) {
         // 新进程确认起来了：显示一次「已重启」，清掉旧的更新横幅（单状态，不并存），
@@ -185,36 +182,6 @@ function PocketSettingsTab({ rpcCall, t }) {
     }
   };
 
-  // 恢复出厂设置：清设置 + 清 OAuth 配置（弹窗确认；RPC 端也强制校验 confirm）
-  const [resetOpen, setResetOpen] = useState(false);
-  const doFactoryReset = async () => {
-    setResetOpen(false);
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await call(POCKET_ENDPOINTS.pocketReset, { confirm: true });
-      setStatus(next);
-      applyMobileRightbarSetting(next.mobileRightbarEnabled);
-      showToast(t('resetDone'));
-    } catch (err) {
-      setError(err.message);
-      showToast(t('resetFailed'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const setMobileRightbar = async (on) => {
-    try {
-      const r = await call(POCKET_ENDPOINTS.mobileRightbarSetEnabled, { on });
-      const enabled = r.mobileRightbarEnabled === true;
-      setStatus((s) => ({ ...s, mobileRightbarEnabled: enabled }));
-      applyMobileRightbarSetting(enabled);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   // OAuth 管理：登出所有设备（轮换会话密钥）/ 解除绑定（保留凭据，清 boundUid）
   const rotateSession = async () => {
     setBusy(true);
@@ -259,7 +226,7 @@ function PocketSettingsTab({ rpcCall, t }) {
   };
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
-  // 通用确认弹框（登出所有设备 / 解除绑定共用）
+  // 通用确认弹框（恢复出厂 / 登出所有设备 / 解除绑定共用）
   const [confirmState, setConfirmState] = useState(null); // { title, body, confirmLabel, danger, action } | null
   const openConfirm = (title, body, confirmLabel, danger, action) => setConfirmState({ title, body, confirmLabel, danger, action });
   const runConfirmed = async () => {
@@ -268,12 +235,22 @@ function PocketSettingsTab({ rpcCall, t }) {
     if (st?.action) await st.action();
   };
 
-  // iOS 风格小开关（手机端右边栏）
-  const Switch = (on, onClick) => h('button', {
-    role: 'switch', 'aria-checked': !!on,
-    style: { flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: 'none', padding: 0, position: 'relative', cursor: 'pointer', font: 'inherit', background: on ? 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary,#4f6ef7))' : 'var(--dsw-alias-border-l2,#d1d5db)' },
-    onClick,
-  }, h('span', { style: { position: 'absolute', top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff' } }));
+  // 恢复出厂设置：清设置 + 清 OAuth 配置（RPC 端也强制校验 confirm）
+  const doFactoryReset = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await call(POCKET_ENDPOINTS.pocketReset, { confirm: true });
+      setStatus(next);
+      showToast(t('resetDone'));
+    } catch (err) {
+      setError(err.message);
+      showToast(t('resetFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // 卡片内主内容：二维码 + 地址 + 提示
   const qrArea = (src, url, hint) => h('div', { style: { background: 'var(--dsw-alias-bg-layer-2,#f3f4f6)', borderRadius: 10, padding: '10px 12px', textAlign: 'center', margin: '10px 0' } },
     h('img', { src, alt: 'QR', style: styles.qr }),
@@ -446,42 +423,23 @@ function PocketSettingsTab({ rpcCall, t }) {
             ),
     ),
 
-    h('div', { style: styles.block },
-      row(
-        t('mobileRightbar'),
-        Switch(status?.mobileRightbarEnabled !== false, () => setMobileRightbar(status?.mobileRightbarEnabled === false)),
-        h('div', { style: { ...styles.muted, marginTop: 6 } }, t('mobileRightbarHint')),
-      ),
-    ),
-
     error ? h('div', { style: { color: 'var(--dsw-alias-state-error-primary,#dc2626)', fontSize: 12, marginTop: 8 } }, `❌ ${errText(error)}`) : null,
 
     // 恢复出厂设置：设置出问题时的临时兜底（最底部，避免误触）
     h('div', { style: styles.block },
       h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
         h('span', { style: { fontWeight: 600, fontSize: 13 } }, t('resetFactory')),
-        h('button', { style: { ...styles.btn, height: 28, padding: '0 12px', fontSize: 12, color: 'var(--dsw-alias-state-error-primary,#dc2626)' }, onClick: () => setResetOpen(true) }, t('resetGo')),
+        h('button', { style: { ...styles.btn, height: 28, padding: '0 12px', fontSize: 12, color: 'var(--dsw-alias-state-error-primary,#dc2626)' }, onClick: () => openConfirm(t('resetTitle'), t('resetBody'), t('resetConfirm'), true, doFactoryReset) }, t('resetGo')),
       ),
       h('div', { style: { ...styles.muted, marginTop: 6 } }, t('resetIntro')),
     ),
 
-    // 恢复出厂设置确认弹框
-    resetOpen ? h('div', { style: { position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 } },
-      h('div', { style: { background: 'var(--dsw-alias-bg-layer-1,#fff)', borderRadius: 12, maxWidth: 440, width: '100%', padding: '20px 22px', boxShadow: '0 8px 32px rgba(0,0,0,.18)' } },
-        h('div', { style: { fontWeight: 600, fontSize: 15, color: 'var(--dsw-alias-state-warn-primary,#b45309)', marginBottom: 10 } }, t('resetTitle')),
-        h('div', { style: { fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary,inherit)', whiteSpace: 'pre-line' } }, t('resetBody')),
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 16 } },
-          h('button', { style: { ...styles.btn, flex: 1 }, onClick: () => setResetOpen(false) }, t('cancel')),
-          h('button', { style: { ...styles.primary, flex: 1, background: 'var(--dsh-alias-state-error-primary,#dc2626)' }, onClick: doFactoryReset }, t('resetConfirm')),
-        ),
-      ),
-    ) : null,
-
-    // 通用确认弹框（登出所有设备 / 解除绑定）
+    // 通用确认弹框（恢复出厂 / 登出所有设备 / 解除绑定）
     confirmState ? h('div', { style: { position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 } },
       h('div', { style: { background: 'var(--dsw-alias-bg-layer-1,#fff)', borderRadius: 12, maxWidth: 420, width: '100%', padding: '20px 22px', boxShadow: '0 8px 32px rgba(0,0,0,.18)' } },
         h('div', { style: { fontWeight: 600, fontSize: 15, color: confirmState.danger ? 'var(--dsw-alias-state-warn-primary,#b45309)' : 'var(--dsw-alias-brand-primary,#4f6ef7)', marginBottom: 10 } }, confirmState.title),
-        h('div', { style: { fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary,inherit)' } }, confirmState.body),
+        // whiteSpace: pre-line —— 恢复出厂的说明文案带换行（①②③ 分条），要原样保留
+        h('div', { style: { fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary,inherit)', whiteSpace: 'pre-line' } }, confirmState.body),
         h('div', { style: { display: 'flex', gap: 8, marginTop: 16 } },
           h('button', { style: { ...styles.btn, flex: 1 }, onClick: () => setConfirmState(null) }, t('cancel')),
           h('button', { style: { ...styles.primary, flex: 1, ...(confirmState.danger ? { background: 'var(--dsh-alias-state-error-primary,#dc2626)' } : {}) }, onClick: runConfirmed }, confirmState.confirmLabel),
@@ -502,7 +460,8 @@ function PocketSettingsTab({ rpcCall, t }) {
   );
 }
 
-export function apply(ctx) {
+/** 远程操控这一半的客户端接线：非本机浏览器的 isLoopback 兜底 + 设置页「手机访问」。 */
+export function applyRemote(ctx) {
   // 兜底：确保 connection.isLoopback 为 true（issue #58）。
   // 注：代理注入的 loopback 补丁（proxy.mjs LOOPBACK_ENV_PATCH）已在 #105 移除——
   // 它与 DSH Desktop 2.0.4+ 客户端运行时不兼容，会令 BootHandoff 阶段白屏。
@@ -514,9 +473,6 @@ export function apply(ctx) {
       try { ctx.connection.isLoopback = true; } catch { /* 忽略 */ }
     }
   }
-
-  // 移动端适配（dsh-web-mobile 移植）：抽屉布局/触控/安全区，仅窄屏生效
-  mobileApply(ctx);
 
   const rpcCall = (endpoint, payload, signal) =>
     ctx.connection.rpc.call(POCKET_RPC_CHANNEL, endpoint, payload, signal);
@@ -540,4 +496,15 @@ export function apply(ctx) {
   );
 }
 
-export { name, inject, redactStatus };
+/**
+ * 「远程操控」组件的客户端入口。
+ *
+ * 这一份产物只服务 row dsh-pocket：关掉那一行 → DSH 不再把本产物放进客户端图 →
+ * 「手机访问」设置页与 isLoopback 兜底随之消失（代理等宿主半边同时停掉）。
+ * 手机端组件那条 row 有它自己的产物（mobile/client/client.js），与本产物互不影响。
+ */
+export function apply(ctx) {
+  applyRemote(ctx);
+}
+
+export { name, inject };

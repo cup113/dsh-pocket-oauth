@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPocketService, selectLanIPv4 } from '../lib/service.mjs';
+import { createPocketService, lanIPv4Candidates } from '../lib/service.mjs';
 import { installPocketRpc } from '../lib/web-rpc.js';
 import { POCKET_RPC_CHANNEL, POCKET_ENDPOINTS } from '../client/api.js';
 
@@ -24,41 +24,46 @@ function fakeCtxConnection() {
   return { rpc: { handle }, get handler() { return handler; } };
 }
 
-// ---------- selectLanIPv4（网卡评分） ----------
+// ---------- lanIPv4Candidates（网卡评分排序） ----------
 
-test('selectLanIPv4：排在前面的 Radmin VPN 不遮蔽 WLAN 私网地址', () => {
-  const ip = selectLanIPv4({
+test('lanIPv4Candidates：排在前面的 Radmin VPN 不遮蔽 WLAN 私网地址', () => {
+  assert.deepEqual(lanIPv4Candidates({
     'Radmin VPN': [{ family: 'IPv4', address: '26.26.26.1', internal: false }],
     WLAN: [{ family: 'IPv4', address: '192.168.1.50', internal: false }],
-  });
-  assert.equal(ip, '192.168.1.50');
+  }).map((c) => c.ip), ['192.168.1.50', '26.26.26.1']);
 });
 
-test('selectLanIPv4：两张私网网卡时优先名称像物理网卡的接口', () => {
-  const ip = selectLanIPv4({
+test('lanIPv4Candidates：两张私网网卡时优先名称像物理网卡的接口', () => {
+  assert.deepEqual(lanIPv4Candidates({
     vEthernet: [{ family: 'IPv4', address: '192.168.137.1', internal: false }],
     '以太网': [{ family: 'IPv4', address: '10.0.0.5', internal: false }],
-  });
-  assert.equal(ip, '10.0.0.5');
+  }).map((c) => c.ip), ['10.0.0.5', '192.168.137.1']);
 });
 
-test('selectLanIPv4（issue #43）：Easytier 网卡不遮蔽改名后的物理网卡', () => {
-  const ip = selectLanIPv4({
+test('lanIPv4Candidates（issue #43）：Easytier 网卡不遮蔽改名后的物理网卡', () => {
+  assert.deepEqual(lanIPv4Candidates({
     easytier0: [{ family: 'IPv4', address: '10.126.126.5', internal: false }],
     'Wi-Fi 6': [{ family: 'IPv4', address: '192.168.2.30', internal: false }],
-  });
-  assert.equal(ip, '192.168.2.30');
+  }).map((c) => c.ip), ['192.168.2.30', '10.126.126.5']);
 });
 
-test('selectLanIPv4：没有私网地址时回退到非回环地址（纯 VPN 环境仍可用）', () => {
-  const ip = selectLanIPv4({
+test('lanIPv4Candidates：没有私网地址时仍返回非回环地址（纯 VPN 环境可用）', () => {
+  assert.deepEqual(lanIPv4Candidates({
     'Radmin VPN': [{ family: 'IPv4', address: '26.26.26.9', internal: false }],
-  });
-  assert.equal(ip, '26.26.26.9');
+  }).map((c) => c.ip), ['26.26.26.9']);
 });
 
-test('selectLanIPv4：空接口表返回 null', () => {
-  assert.equal(selectLanIPv4({}), null);
+test('lanIPv4Candidates：过滤回环 / link-local / 非 IPv4，空表返回空数组', () => {
+  assert.deepEqual(lanIPv4Candidates({
+    lo: [{ family: 'IPv4', address: '127.0.0.1', internal: true }],
+    eth0: [
+      { family: 'IPv4', address: '169.254.10.1', internal: false },
+      { family: 'IPv6', address: 'fe80::1', internal: false },
+      { family: 'IPv4', address: '192.168.3.7', internal: false },
+    ],
+  }).map((c) => c.ip), ['192.168.3.7']);
+  assert.deepEqual(lanIPv4Candidates({}), []);
+  assert.deepEqual(lanIPv4Candidates(undefined), []);
 });
 
 // ---------- service：代理生命周期与状态快照 ----------
@@ -181,7 +186,6 @@ test('RPC：status（含 OAuth 视图）/ 未知端点', async () => {
   installPocketRpc({ connection: conn }, {
     service,
     getOAuthView: () => ({ configured: true, callbackOrigins: ['https://pocket.example.com'], bound: true, boundLogin: 'alice' }),
-    setMobileRightbarEnabled: (on) => on,
     log: { error() {}, warn() {} },
   });
 
@@ -233,31 +237,8 @@ test('RPC：oauth.rotateSession / oauth.unbind', async () => {
   await service.dispose();
 });
 
-test('RPC：mobile.rightbar.setEnabled 默认开启并回写到 status', async () => {
-  const internals = stubInternals();
-  let enabled = true;
-  const service = createPocketService({ dshPort: 3080, port: 3081, internals });
-  const conn = fakeCtxConnection();
-  installPocketRpc({ connection: conn }, {
-    service,
-    setMobileRightbarEnabled: (on) => { enabled = on === true; return enabled; },
-    log: { error() {}, warn() {} },
-  });
-
-  const initial = await conn.handler(POCKET_ENDPOINTS.status, {});
-  assert.equal(initial.ok, true);
-  assert.equal(initial.value.mobileRightbarEnabled, true, '默认开启');
-
-  const off = await conn.handler(POCKET_ENDPOINTS.mobileRightbarSetEnabled, { on: false });
-  assert.equal(off.ok, true);
-  assert.equal(off.value.mobileRightbarEnabled, false, '关闭成功');
-
-  const on = await conn.handler(POCKET_ENDPOINTS.mobileRightbarSetEnabled, { on: true });
-  assert.equal(on.ok, true);
-  assert.equal(on.value.mobileRightbarEnabled, true, '可再次开启');
-
-  await service.dispose();
-});
+// 手机端右边栏开关的 RPC 用例已随旧移动端适配删除（端点 mobile.rightbar.setEnabled 不复存在）；
+// 旧端点必须继续报 bad-request，见 test/plugin-home.test.js「组件边界」用例。
 
 test('RPC：status 携带重启提示（restartNotice）', async () => {
   const internals = stubInternals();
@@ -348,19 +329,20 @@ test('自重启：restartHost 用 detached 辅助进程交接，旧进程随后�
   assert.equal(calls.length, 1, '只拉起一个辅助进程');
   const helper = calls[0];
   assert.equal(helper.file, process.execPath, '用 node 拉起辅助进程');
-  assert.equal(helper.args[0], '-e');
+  assert.ok(helper.args[0].endsWith('restart-helper.mjs'), '辅助进程是仓库里的真实文件（不是 -e 拼出来的源码串）');
+  assert.equal(helper.args.length, 2, '只传一个 base64 参数');
   assert.equal(helper.detached, true, '辅助进程 detached');
-  const code = helper.args[1];
-  assert.ok(code.includes(JSON.stringify(process.argv[0])), '辅助代码含 node 路径');
-  assert.ok(code.includes('waitPort'), '辅助代码含端口释放探测（替代固定延时）');
-  assert.ok(code.includes('setTimeout'), '辅助代码含轮询延时');
-  // helper 代码必须是可执行的有效 JS（防拼接语法错误 → 重启静默失败）
-  const vm = await import('node:vm');
-  try {
-    vm.compileFunction(code, [], { filename: 'restart-helper.js' });
-  } catch (e) {
-    assert.fail('helper 代码语法错误: ' + e.message);
-  }
+  // 交接参数经 base64(JSON) 传递：引号 / 空格 / 非 ASCII 都不会破坏 argv
+  const cfg = JSON.parse(Buffer.from(helper.args[1], 'base64').toString('utf8'));
+  assert.equal(cfg.file, process.argv[0], '交接参数含 node 路径');
+  assert.ok(Array.isArray(cfg.args) && cfg.args.length > 0, '交接参数含启动参数');
+  assert.equal(cfg.port, 3080, '交接参数含待释放的 dsh 端口');
+  assert.equal(cfg.logOut, result.logOut);
+  assert.equal(cfg.logErr, result.logErr);
+  // helper 文件必须是语法有效的 ESM（防语法错误 → 重启静默失败）
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  await promisify(execFile)(process.execPath, ['--check', helper.args[0]]);
   await new Promise((r) => setTimeout(r, 600));
   assert.ok(calls.some((c) => typeof c === 'string' && c.startsWith('kill:')), '短暂等待后旧进程退出');
 });

@@ -50,11 +50,24 @@ DSH Pocket 就是干这个的：**只暴露一个端口，登录一次 Gitee / G
 | 🚪 一键登出         | 「登出所有设备」= 轮换进程级会话密钥，所有已登录设备立即失效（换手机、怀疑泄露时用）                                                                             |
 | 🧾 排障上下文       | 设置页「复制排障上下文」一键生成含使用目标、架构与认证模型、当前状态快照的文本（已脱敏），粘贴给任意 AI 即可让它接手排查                                          |
 | ⚡ 实时同步         | 流式输出走 WebSocket 全透传——**电脑上在输出，手机上同步在滚**，可双向操作；内置心跳保活（防 NAT/省电机制静默断链，断线自动重连）                                 |
-| 📱 移动端适配       | 窄屏自动变抽屉布局（移植 dsh-web-mobile，MIT）：侧栏抽屉、会话全宽、状态栏安全区、触控优化                                                                       |
-| 🧭 可选右边栏       | 手机端显示原生右边栏入口；普通手机可在设置中关闭以保持紧凑，折叠屏展开后可更方便地同时使用终端底栏和右边栏                                                       |
-| 📁 文件浏览         | 移动端「文件浏览」入口需要宿主提供 explorer 面板（dsh-web-ui 组件）；官方 DSH 未内置时入口自动隐藏，不会出现"点了没反应"                                         |
 | 🗜️ 传输压缩         | 大 JSON 响应自动 gzip/brotli（长会话 17MB → ~1MB，brotli 质量 6：快且省流量），手机加载更快、更省流量                                                            |
-| 🧩 零额外服务       | 一个 npm 包、一个设置页；不需要自建服务器或中继（登录用你自己的 Gitee / GitHub 账号）                                                                             |
+| 🧩 零额外服务       | 一个 npm 包（远程操控 + 手机端 WebUI 组件）；不需要自建服务器或中继（登录用你自己的 Gitee / GitHub 账号）                                                        |
+| 📱 手机端界面       | 手机打开就是电脑上的官方界面（同一个 `dsh web`、实时同屏），并自动套用窄屏优化：抽屉式侧边栏、设置两级导航、触屏输入框、Plan 审阅卡片                                        |
+
+### 🧩 两个可独立开关的组件
+
+一个包里装了两个组件，安装/更新仍然只有一条命令；组件在 **侧边栏 → 插件 → dsh-pocket** 卡片里各自有一个开关：
+
+| 组件                                | 负责                                                | 关掉之后                                                                 |
+| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `dsh-pocket`（远程操控）            | 单端口代理、Gitee/GitHub OAuth、地址二维码、更新/重启 | 代理不再监听（3081 关闭）、无「手机访问」设置区；手机照样能打开官方界面（局域网/隧道直连本机 dsh web） |
+| `dsh-pocket-mobile`（手机端 WebUI） | 窄屏（< 1024px）自动生效：抽屉式左侧栏、全局面板返回键、两级设置导航、触屏输入框、Plan / 审批卡片 | 手机打开就是官方桌面排版（侧栏被挤成 56px 图标条、设置页左右并排挤压） |
+
+> **手机端 WebUI 现在带客户端产物**：子包 `dsh-pocket-mobile`（源码在 `mobile/`，随包一起安装）声明了 `dsh.client`，客户端半边由 `client/build.mjs` 打包成 `mobile/client/client.js`，面板里那条 row 因此有「配置」页，可以关掉遮罩、输入框优化与设置分步导航。
+>
+> 开关写在 profile 的 `cordis.patch.yml`（DSH 原生机制）：**宿主半边即时停/启**；客户端产物的进出在下一次页面加载时生效，切完开关刷新一下页面即可。
+
+设置里只有远程操控的「手机访问」（代理 / OAuth / 二维码 / 更新 / 重启），**没有**手机端界面相关的独立页；移动端微调在「插件 → dsh-pocket 卡片」里。
 
 ## 🚀 怎么用
 
@@ -161,26 +174,38 @@ npx @deepseek-ai/dsh web
 - 桌面版里 dsh-pocket 的**实时同屏**正常可用；**更新/重启由桌面版管理**（插件内这两项自动停用）
 - ⚠️ 桌面端 **advanced 模式**暂不支持手机访问（该模式禁用网页布局、手机拿不到 layout 服务，会白屏）——请切回 **compatibility** 模式后重启；advanced 模式下手机打开会看到明确的提示层
 
-## 🗂 架构（单包）
+## 🗂 架构（一个 npm 包、两份客户端产物）
 
-| 文件                 | 说明                                                                                                                                                     |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/index.js`       | 插件入口：自动起代理 + 注册 RPC + OAuth 会话密钥（轮换＝登出所有设备）+ 绑定/解绑/恢复出厂 + 桌面端环境适配                                              |
-| `lib/oauth.mjs`      | OAuth 核心：provider 表（Gitee / GitHub 端点、scope、取用户风格）、配置读写（`oauth.json`，0600，含 provider）、state 存储（单次使用 + TTL，携带 provider）、回调 origin 白名单校验、authorize/token/user 调用、会话 cookie 派生          |
-| `lib/service.mjs`    | 服务：代理生命周期（端口自适应）、状态快照（OAuth 视图 + 每条白名单地址的二维码 + 局域网 IP 候选）                                                        |
-| `lib/proxy.mjs`      | 改头反向代理：Host/Origin → loopback，HTTP + WebSocket 透传 + polyfill 注入 + gzip/brotli 压缩 + **认证门**（loopback 免认证 / 其余要 OAuth 会话，fail closed）+ `/pocket-oauth/*`、`/pocket-setup` 路由 |
-| `lib/settings.mjs`   | 设置持久化：代理端口 + 手机端右边栏（`$DSH_HOME/dsh-pocket/settings.json`）                                                                                |
-| `lib/web-rpc.js`     | loopback RPC：`status` / `oauth.rotateSession` / `oauth.unbind` / `mobile.rightbar.setEnabled` / `version` / `update` / `restart` / `pocket.reset` / `pocket.fileRead` |
-| `client/`            | 设置页「手机访问」（初始化引导 + 绑定状态 + 二维码）+ 移动端适配（dsh-web-mobile 移植）                                                                    |
-| `bin/dsh-pocket.mjs` | CLI：独立跑同一套代理与 OAuth 配置（`--port` / `--host`）                                                                                                 |
+> `dsh.bundle` 与 `dsh.client` 都是**包级**声明。手机端 WebUI 以**包内子包**形式交付（`mobile/` = `dsh-pocket-mobile`），它自己声明 `dsh.client` 并提供客户端产物，因此面板里那张卡片有两个可分别开关的组件、手机端组件也有自己的「配置」页。子包的交付机制：仓库里提交一条 `node_modules/dsh-pocket-mobile -> ../mobile` 软链并声明 `dependencies: {"dsh-pocket-mobile": "file:./mobile"}` + `bundledDependencies`，git 安装（`dsh plugin add` / pnpm）时会把它解引用打进安装物。
+
+| 文件                               | 说明                                                                                                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/index.js`                     | **远程操控**组件入口（row `dsh-pocket`）：自动起代理 + 注册 RPC + OAuth 会话密钥（轮换＝登出所有设备）+ 绑定/解绑/恢复出厂 + 桌面端环境适配                 |
+| `lib/oauth.mjs`                    | OAuth 核心：provider 表（Gitee / GitHub 端点、scope、取用户风格）、配置读写（`oauth.json`，0600，含 provider）、state 存储（单次使用 + TTL，携带 provider）、回调 origin 白名单校验、authorize/token/user 调用、会话 cookie 派生          |
+| `lib/service.mjs`                  | 服务：代理生命周期（端口自适应）、状态快照（OAuth 视图 + 每条白名单地址的二维码 + 局域网 IP 候选）                                                        |
+| `lib/proxy.mjs`                    | 改头反向代理：Host/Origin → loopback，HTTP + WebSocket 透传 + polyfill 注入 + gzip/brotli 压缩 + **认证门**（loopback 免认证 / 其余要 OAuth 会话，fail closed）+ `/pocket-oauth/*`、`/pocket-setup` 路由 |
+| `lib/rpc-route.js`                 | RPC 传输层（`lib/web-rpc.js` 用）：webServer 挂载 / `rpc.handle` 回退 / 信任栅栏 / 4xx-5xx 分支（与 dsh-client-connection 的 `/api` 逐分支对齐）；将来移动端宿主半边可经 `dsh-pocket/lib/rpc-route.js` 复用 |
+| `lib/settings.mjs`                 | 设置持久化：代理端口 → `$DSH_HOME/dsh-pocket/settings.json`（旧版遗留的 `mobileRightbarEnabled` 孤儿键不再读写，随「恢复出厂设置」清除）                    |
+| `lib/clipboard.mjs`                | 剪贴板写入（构建时内联进客户端产物）：`navigator.clipboard` + `execCommand` 兜底                                                                          |
+| `lib/web-rpc.js`                   | 远程操控的 loopback RPC（通道 `/dsh-pocket`）：`status` / `oauth.rotateSession` / `oauth.unbind` / `version` / `update` / `restart` / `pocket.reset`        |
+| `client/`                          | **远程操控**的客户端产物（`dsh.client` → `client/client.js`）：`index.jsx` 只启用设置页「手机访问」+ `isLoopback` 兜底；`api.js` 为它的契约与工具         |
+| `mobile/`                          | **手机端 WebUI** 子包 `dsh-pocket-mobile`：`index.js` 是空壳宿主入口（界面能力全在客户端半边），`locale/` 提供面板行的标题与描述，`package.json` 声明包身份与 `dsh.client` |
+| `mobile/client/styles.js`          | 移动端样式的**唯一来源**（纯 JS 导出的 CSS 字符串）：`shellCss` 帧/抽屉几何与面板返回键、`settingsCss`、`composerCss`、`planCss`、`touchCss`。刻意不做 `.css` 文件导入——原生 `node --test` 无法 import CSS |
+| `mobile/client/responsive-shell.js` | 视口断点（1024，与 `ui-layout` 的侧边栏自动折叠断点一致）、样式注入与配置投影、抽屉遮罩与幂等开合（只读框架的 `[data-sidebar-collapsed]` 再决定是否调 `toggleSidebar`）、自动收起只认「导航」：会话行被激活或主栏身份真的变了才收起，展开工作区、开 `⋯` 菜单都不收起 |
+| `mobile/client/settings-adapter.js` | 设置弹窗两级导航转接器：目录 ↔ 详情状态属性、注入「返回设置」、受「分步导航」开关控制                                                                    |
+| `mobile/client/index.jsx`          | 插件入口：注册汉堡按钮到 `conversation.header.leading` 槽位、注册全局面板返回键到 `shell.overlay` 槽位（面板接管主栏时会话连同 header 一起不渲染，汉堡按钮随之消失，这是手机上唯一的回会话入口）、装配上面两个适配器、注册「配置」页 |
+| `scripts/link-mobile-package.mjs`  | 维护仓库里那两条软链（bundled 子包 + 开发态自引用）：`npm install` / `npm ci` 会把它们替换成副本或删掉，构建与测试前先跑它复原                            |
+| `bin/dsh-pocket.mjs`               | CLI：独立跑同一套代理与 OAuth 配置（`--port` / `--host`）                                                                                                 |
 
 ## 🛠 开发
 
 ```sh
 npm install
-node client/build.mjs   # 改 client/ 后重新打包（客户端 bundle）
-npm test                # 代理 / OAuth / 压缩 / 握手 / 服务 / RPC / 设置 / 移动端
+npm run build:client    # 重新打包两份客户端产物（client/client.js、mobile/client/client.js），并复原仓库内的两条软链
+npm test                # 代理 / OAuth / 压缩 / 握手 / 服务 / RPC / 设置 / 手机端界面 / 打包结构
 ```
+
+> 改了 `client/**` 或 `mobile/client/**`（以及它们引用的 `lib/*.mjs`）都必须重新打包：产物纳入版本控制，`npm test` 会用「源码重建 ↔ 产物」逐字节比对来防止测试对着旧产物「全绿」。
 
 > 沙箱/受限环境下 `node --test` 会因"每个测试文件派生子进程 + 管道 stdio"被拒：改成逐文件直接跑 `node test/xxx.test.js`；打包同理（esbuild JS API 会派生子进程，可改用 esbuild CLI 产出后再做包装）。
 
@@ -189,14 +214,14 @@ npm test                # 代理 / OAuth / 压缩 / 握手 / 服务 / RPC / 设�
 ## 🤝 致谢
 
 - 本项目基于 [shaobeichen/dsh-pocket](https://github.com/shaobeichen/dsh-pocket)（原作者：程序员少北晨）改造：把访问密码（PIN）换成 **Gitee / GitHub OAuth 登录**（初始化时二选一），并移除内置隧道（改由用户自建）
-- 移动端适配移植自 [mexiaosqwq/dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile)（MIT）
+- 旧的移动端窄屏适配曾移植自 [mexiaosqwq/dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile)（MIT）；那份实现已随官方 WebUI 更新失效并整体移除（源码与版权声明文件一并删除），当前的手机端 WebUI 是按 DSH 现有槽位契约重写的：汉堡按钮走 `conversation.header.leading`，抽屉几何对齐 `AppFrame` 的真实列类名，不再依赖任何被上游改掉的 DOM 结构
 - 登录鉴权基于 [Gitee OAuth 2.0](https://gitee.com/api/v5/oauth_doc) 与 [GitHub OAuth apps](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)
 
 ## 📄 License
 
 [GPL-2.0](LICENSE) —— 自由软件许可：可自由使用、修改、分发，但**修改版必须同样以 GPL 开源**并保留版权声明；商用同样适用。
 
-> 说明：移动端适配部分移植自 [dsh-web-mobile](https://github.com/mexiaosqwq/dsh-web-mobile)（MIT 许可，兼容 GPL），其版权声明保留在 `client/mobile/LICENSE.dsh-web-mobile`。
+> 说明：本仓库曾在 `mobile/` 下移植 dsh-web-mobile（MIT 许可，兼容 GPL）的移动端适配；随官方 WebUI 更新该目录被整体清空，对应的版权声明文件也随原实现一并删除。当前的手机端 WebUI 是按 DSH 现有槽位契约重写的版本；今后若再引入任何第三方移动端代码，请连同其许可证与版权声明一起带回。
 
 ---
 

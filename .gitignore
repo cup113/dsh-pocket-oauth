@@ -1,4 +1,10 @@
-node_modules/
+# 仓库里刻意提交了两条软链（见 scripts/link-mobile-package.mjs）：
+#   node_modules/dsh-pocket-mobile -> ../mobile  ← 手机端 WebUI 组件的空壳子包（bundledDependencies）
+#   node_modules/dsh-pocket        -> ..         ← 开发态自引用（给将来移动端宿主半边 import 'dsh-pocket/lib/*' 预留）
+# 其余 node_modules 内容照常忽略。
+node_modules/*
+!node_modules/dsh-pocket-mobile
+!node_modules/dsh-pocket
 *.log
 .DS_Store
 .workbuddy/

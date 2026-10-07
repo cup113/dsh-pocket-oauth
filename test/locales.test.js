@@ -1,5 +1,8 @@
 // 设置页 i18n 词典完整性（PR #36）：zh/en key 集合必须一致、占位符一致、
 // 源码 t()/fmt() 引用的 key 必须都在词典中——防止加字符串时 key 不同步（英文漏翻/白屏 key）。
+//
+// 手机端组件不注册 locale 命名空间（界面文案在客户端半边硬编码），旧移动端词典
+// （mobile/client/pocket-mobile-locales.js）随旧适配一起删除，这里只剩「手机访问」这一份。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

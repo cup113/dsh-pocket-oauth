@@ -11,6 +11,7 @@
       "default": "./lib/index.js"
     },
     "./client": "./client/client.js",
+    "./lib/*": "./lib/*",
     "./package.json": "./package.json"
   },
   "files": [
@@ -22,13 +23,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "build:client": "node client/build.mjs",
+    "build:client": "node scripts/link-mobile-package.mjs && node client/build.mjs",
+    "pretest": "npm run build:client",
     "release": "semantic-release",
     "test": "node --test --test-timeout=30000 \"test/*.test.js\""
   },
   "dependencies": {
+    "dsh-pocket-mobile": "file:./mobile",
     "qrcode": "^1.5.4"
   },
+  "bundledDependencies": [
+    "dsh-pocket-mobile"
+  ],
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
