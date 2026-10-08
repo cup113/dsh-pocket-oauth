@@ -84,15 +84,20 @@ npm install -g @deepseek-ai/dsh     # global; verify with: dsh --version
 ```
 
 ```sh
-# 1. Install this repo (linked from source into the profile; use your own clone path)
-git clone https://github.com/cup113/dsh-pocket-oauth.git
-dsh plugin --profile web add link:/absolute/path/to/dsh-pocket-oauth -w
+# 1. Install this repo (from GitHub; the package is dsh-pocket, the repo is dsh-pocket-oauth)
+dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w
+#    This fails once with ERR_PNPM_IGNORED_BUILDS: the mobile subpackage is linked by the root
+#    package's postinstall, and pnpm 11 blocks dependency scripts by default. Click
+#    "Allow these scripts and retry" on the plugin panel, then re-run the command (one time only).
 
 # 2. Restart dsh web
 npx @deepseek-ai/dsh web
 ```
 
-> ⚠️ The npm package `dsh-pocket` is the **original** project (PIN-based, not this repo). When installed from source, the in-UI "update" button targets that npm package — **don't use it** (it replaces the symlink with the npm original); update this repo with `git pull` and restart dsh web.
+> ⚠️ The npm package `dsh-pocket` is the **original** project (PIN-based, not this repo) — never install it with `dsh plugin add dsh-pocket`. This repo installs from GitHub only.
+> ⚠️ **Already installed an older version?** A `github:` spec pins the commit, so restarting is not enough: re-run the `add` command above (and allow the build script once) to get the fixed mobile subpackage.
+> 🔄 The in-UI "one-click update" detects the install kind first: a `github:` spec re-runs the `add` command (re-pinning the latest main commit); a local clone symlink (development, see [LOCAL-DEV.md](./LOCAL-DEV.md)) runs `git pull --ff-only`. Both restart dsh web afterwards.
+
 
 ### Step 1: one-time setup (on this machine, ~2 minutes)
 
@@ -175,7 +180,10 @@ Open `https://your-fixed-domain` on the phone → tap "**Sign in with Gitee**" (
 
 ## 🗂 Architecture (one package, two client bundles)
 
-> Both `dsh.bundle` and `dsh.client` are **package-level** declarations. The Mobile Web UI is delivered as an **in-package subpackage** (`mobile/` = `dsh-pocket-mobile`) which declares `dsh.client` itself and ships its own browser half, so the panel card carries two independently switchable components and the mobile one has a **Configure** page. Delivery mechanism: the repo commits a `node_modules/dsh-pocket-mobile -> ../mobile` symlink and declares `dependencies: {"dsh-pocket-mobile": "file:./mobile"}` plus `bundledDependencies`, so a git install (`dsh plugin add` / pnpm) dereferences it into the installed package.
+> Both `dsh.bundle` and `dsh.client` are **package-level** declarations. The Mobile Web UI is delivered as an **in-package subpackage** (`mobile/` = `dsh-pocket-mobile`) which declares `dsh.client` itself and ships its own browser half, so the panel card carries two independently switchable components and the mobile one has a **Configure** page. Delivery mechanism: `mobile/` is published with the root package via its `files` list, and **after installation** the root package's `postinstall` (`scripts/link-mobile-package.mjs`) creates `node_modules/dsh-pocket-mobile -> <package root>/mobile` inside the installed package — DSH resolves that row by looking for the package name under the package's own `node_modules`, so the link has to exist there.
+>
+> ⚠️ On a GitHub install pnpm 11 blocks that `postinstall` first: the command fails once with `ERR_PNPM_IGNORED_BUILDS` — click **Allow these scripts and retry** on the plugin panel, then run the same `add` again (one time only). `dependencies`/`bundledDependencies` cannot replace it: pnpm resolves `file:./mobile` against the *profile* directory and fails the whole install, and any `node_modules/**` committed to the repo is dropped when the artifact is unpacked.
+
 
 | File                 | Purpose                                                                                                                                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -193,14 +201,14 @@ Open `https://your-fixed-domain` on the phone → tap "**Sign in with Gitee**" (
 | `mobile/client/responsive-shell.js` | Viewport breakpoint (1024, matching the `ui-layout` sidebar auto-collapse point), style injection and prefs projection, drawer backdrop and idempotent open/close (reads the framework's `[data-sidebar-collapsed]` before deciding whether to call `toggleSidebar`), and auto-close that only recognises *navigation*: a session row being activated, or the main column's identity actually changing — expanding a Workspace or opening a `⋯` menu never closes the drawer |
 | `mobile/client/settings-adapter.js` | Settings dialog two-level navigation adapter: directory ↔ detail state, injected "back to settings" bar, gated by the stepped-navigation switch |
 | `mobile/client/index.jsx` | Plugin entry: registers the hamburger into `conversation.header.leading`, registers the global-panel exit button into `shell.overlay` (when a panel takes over the main column the conversation — and with it the hamburger — is not rendered at all, so this is the only way back on a phone), installs the two adapters above, registers the **Configure** page |
-| `scripts/link-mobile-package.mjs` | Maintains the two repo symlinks (the bundled subpackage and the dev self-reference): `npm install` / `npm ci` replace or delete them, so builds and tests restore them first |
+| `scripts/link-mobile-package.mjs` | The root package's `postinstall`: creates `node_modules/dsh-pocket-mobile -> <package root>/mobile` inside the installed package (the subpackage's only delivery mechanism). A link it cannot create is reported as a warning, never a failure — the row is `required: false` and must not break the whole plugin install |
 | `bin/dsh-pocket.mjs` | CLI: runs the same proxy and OAuth config standalone (`--port` / `--host`)                                                                                                      |
 
 ## 🛠 Development
 
 ```sh
 npm install
-npm run build:client    # rebuild both client bundles (client/client.js, mobile/client/client.js) and restore the repo symlinks
+npm run build:client    # rebuild both client bundles (client/client.js, mobile/client/client.js)
 npm test                # proxy / OAuth / compression / handshake / service / RPC / settings / mobile UI / packaging
 ```
 

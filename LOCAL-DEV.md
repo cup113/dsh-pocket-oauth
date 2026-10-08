@@ -32,16 +32,18 @@ ls -l dsh-pocket
 | `client/**`（远程操控的客户端产物源码） | 先 `npm run build:client` 打包，再刷新页面 |
 | `mobile/client/**`（手机端 WebUI 的客户端源码：`styles.js` / `responsive-shell.js` / `settings-adapter.js` / `index.jsx`） | 先 `npm run build:client` 打包成 `mobile/client/client.js`，再刷新页面 |
 | `mobile/package.json`、`mobile/locale/**`（面板那条 row 的包身份与标题描述） | 重启 dsh web 生效（无产物要打） |
-| `package.json` 里的子包依赖 / 软链（`node_modules/dsh-pocket-mobile`、`node_modules/dsh-pocket`） | 跑 `node scripts/link-mobile-package.mjs` 复原（`npm run build:client` 里也带） |
+| `mobile/` 目录本身挪了位置/改了名 | 同步改 `scripts/link-mobile-package.mjs` 里的 `MOBILE_NAME` 与目标目录（它靠 `<包根>/mobile` 定位子包） |
 
 ```sh
-npm run build:client      # 打包客户端产物 + 复原仓库内软链（只改后端可跳过）
+npm run build:client      # 打包客户端产物（只改后端可跳过）
 npm test                  # 建议顺手跑一遍（沙箱内 `node --test` 会被拒时，改为逐文件 node test/xxx.test.js）
 ```
 
-> **为什么仓库里会有 `node_modules` 软链**：手机端组件是包内子包 `dsh-pocket-mobile`（`mobile/` 是它的源码），面板那条 row 的名字必须解析得到这个包，所以 `node_modules/dsh-pocket-mobile -> ../mobile` 是打包时被解引用进安装物的那条软链。它声明了 `dsh.client`、带客户端产物 `mobile/client/client.js`，软链与 `file:` 依赖照旧保留。
-> `node_modules/dsh-pocket -> ..` 是开发态自引用：**当前没有引用者**，留给将来移动端宿主半边（子包里的 `import 'dsh-pocket/lib/*'` 需要它才能在开发态解析）。
-> `npm install` / `npm ci` 会把这两条换成副本或删掉，所以构建/测试前一定先跑 `scripts/link-mobile-package.mjs`（`npm run build:client`、`npm test` 的 pretest 都会自动跑）。
+> **手机端组件 dsh-pocket-mobile 是怎么到安装物里的**：`mobile/` 是它的源码目录，随根包 `package.json` 的 `files` 一起发布；**装完之后**由根包的 `postinstall`（`scripts/link-mobile-package.mjs`）在包内建出 `node_modules/dsh-pocket-mobile -> <包根>/mobile`，面板那条 row 因此解析得到这个包。
+> 为什么不能靠 `dependencies` / `bundledDependencies` / 提交软链：pnpm 做 git 安装时会把 `"file:./mobile"` **相对 profile 目录**解析（那里没有 `mobile/`，安装直接失败），而仓库里提交的 `node_modules/**`（无论软链还是实体目录）在解包时会被 pnpm 丢掉——三条路都到不了安装态。
+> 代价：pnpm 11 默认拦下依赖脚本，**首次 `dsh plugin add` 会以 build-blocked 失败一次**，在插件面板点「允许这些脚本并重试」后才会建出链接（`allowBuilds` 记在该 profile 的 `pnpm-workspace.yaml`）。这一步只需做一次，之后就跟着 profile 走。
+> 本地开发时这个链接由 `npm install` / `npm run build:client` 顺带建出；`npm test` 的 pretest 也会跑一次，所以本机不需要手动处理。
+
 
 ### 两个组件怎么验证
 
@@ -116,6 +118,10 @@ grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
 
 之后重启 dsh web 即可。pnpm 会把结果 pin 在当时的 main 提交上——想跟上新提交，再跑一次上面的命令。
 
+> **从 GitHub 装时会有一次 build-blocked**：pnpm 11 默认拦下依赖脚本，而手机端子包正是由根包 `postinstall` 建链接的。命令会以 `ERR_PNPM_IGNORED_BUILDS` 失败一次，按提示在**插件面板**点「允许这些脚本并重试」（等价于把 `allowBuilds` 里的 `dsh-pocket@…` 设为 `true`）即可；放行后重跑同一条 add 命令，`mobile/` 那条 row 就能激活。授权按包名记在该 profile 的 `pnpm-workspace.yaml`，之后升级不用再点。
+> 注意：这条授权允许该包以**你的用户权限**执行 `postinstall`，请确认你装的是本仓库（`github:cup113/dsh-pocket-oauth`）。
+> 装完可以确认子包链接已在安装物里：`ls ~/.dsh/profiles/web/node_modules/dsh-pocket/node_modules/` 应能看到 `dsh-pocket-mobile`。
+
 > 设置页的「一键更新」会探测安装方式并自动选择正确动作：本地 clone 软链（`link:`）安装执行 `git pull --ff-only`，`github:` 规格安装重跑上面的 add 命令；两者成功后都会自动重启生效。
 
 ---
@@ -133,6 +139,8 @@ grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
 
 **手机上是桌面排版、没有汉堡按钮**：移动端排版只在窗口宽度 < 1024px 时生效（与 DSH 框架折叠侧边栏的断点一致）。桌面浏览器把窗口缩窄即可复现；手机上先用「插件 → dsh-pocket」卡片确认 `dsh-pocket-mobile` 是开着的。
 
-**代理端口 3081 起不来**：插件没加载成功。检查软链路径是否正确、仓库依赖是否装好；也可以 `curl -s http://127.0.0.1:3080/` 看返回的 HTML 里有没有 `dsh-pocket/client.js`。
+**代理端口 3081 起不来**：插件没加载成功。检查安装目录/软链路径是否正确、仓库依赖是否装好；也可以 `curl -s http://127.0.0.1:3080/` 看返回的 HTML 里有没有 `dsh-pocket/client.js`。
+
+**那条 `dsh-pocket-mobile` row 一直 Not running / `failed to import`**：子包链接没建出来。先看 `ls ~/.dsh/profiles/<p>/node_modules/dsh-pocket/node_modules/`——若没有 `dsh-pocket-mobile`，说明 `postinstall` 没跑过（多半是那次 `add` 卡在 build-blocked）：在插件面板允许脚本后重跑一次 add 命令，或手动在该包目录里执行 `node scripts/link-mobile-package.mjs`。
 
 **端口被占**：`lsof -ti :3080` 或 `lsof -ti :3081` 查占用进程；dsh-pocket 的代理在 3081 被占时会自动顺延到下一个端口。

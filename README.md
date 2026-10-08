@@ -87,12 +87,15 @@ npm install -g @deepseek-ai/dsh     # 全局安装；验证：dsh --version
 ```sh
 # 1. 安装本仓库（从 GitHub 拉取；包名是 dsh-pocket，仓库名是 dsh-pocket-oauth）
 dsh plugin --profile web add github:cup113/dsh-pocket-oauth -w
+#    ↑ 首次会以 ERR_PNPM_IGNORED_BUILDS 失败一次：手机端子包靠根包 postinstall 建链接，
+#      而 pnpm 11 默认拦下依赖脚本。在插件面板点「允许这些脚本并重试」后，重跑这条命令即可（只需一次）。
 
 # 2. 重启 dsh web
 npx @deepseek-ai/dsh web
 ```
 
 > ℹ️ npm 上的 `dsh-pocket` 是**原版**（PIN 模型，不是本仓库）——**不要**用 `dsh plugin add dsh-pocket`，那装到的是原版。本仓库只从 GitHub 安装。
+> ⚠️ **已经装过旧版的用户**：`github:` 规格会把版本 pin 在当时的 main 提交上，光重启不会升级。要拿到修好的手机端子包，必须重新执行一次上面的 `add` 命令（并按提示允许一次构建脚本）。
 > 🔄 设置页的「一键更新」会先探测安装方式再选择正确动作：`github:` 规格安装重跑一次 add（重新 pin 最新 main 提交）；本地 clone 软链（开发方式，见 [LOCAL-DEV.md](./LOCAL-DEV.md)）执行 `git pull --ff-only`。完成后自动重启生效。
 
 ### 第一步：一次性初始化（在本机，约 2 分钟）
@@ -176,7 +179,10 @@ npx @deepseek-ai/dsh web
 
 ## 🗂 架构（一个 npm 包、两份客户端产物）
 
-> `dsh.bundle` 与 `dsh.client` 都是**包级**声明。手机端 WebUI 以**包内子包**形式交付（`mobile/` = `dsh-pocket-mobile`），它自己声明 `dsh.client` 并提供客户端产物，因此面板里那张卡片有两个可分别开关的组件、手机端组件也有自己的「配置」页。子包的交付机制：仓库里提交一条 `node_modules/dsh-pocket-mobile -> ../mobile` 软链并声明 `dependencies: {"dsh-pocket-mobile": "file:./mobile"}` + `bundledDependencies`，git 安装（`dsh plugin add` / pnpm）时会把它解引用打进安装物。
+> `dsh.bundle` 与 `dsh.client` 都是**包级**声明。手机端 WebUI 以**包内子包**形式交付（`mobile/` = `dsh-pocket-mobile`），它自己声明 `dsh.client` 并提供客户端产物，因此面板里那张卡片有两个可分别开关的组件、手机端组件也有自己的「配置」页。子包的交付机制：`mobile/` 随根包 `package.json` 的 `files` 一起发布，**装完之后**由根包的 `postinstall`（`scripts/link-mobile-package.mjs`）在包内建出 `node_modules/dsh-pocket-mobile -> <包根>/mobile` 链接——DSH 解析那条 row 时只在包内 `node_modules` 里找这个包名，所以链接必须存在。
+>
+> ⚠️ 从 GitHub 安装时，pnpm 11 会先拦下这个 `postinstall`：命令以 `ERR_PNPM_IGNORED_BUILDS` 失败一次，在**插件面板**点「允许这些脚本并重试」后再跑一次 add 即可（只需一次）。不能改用 `dependencies`/`bundledDependencies`：pnpm 会把 `file:./mobile` 相对 profile 目录解析而直接让安装失败，仓库里提交的 `node_modules/**` 也会在解包时被丢掉。
+
 
 | 文件                               | 说明                                                                                                                                                     |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -194,14 +200,14 @@ npx @deepseek-ai/dsh web
 | `mobile/client/responsive-shell.js` | 视口断点（1024，与 `ui-layout` 的侧边栏自动折叠断点一致）、样式注入与配置投影、抽屉遮罩与幂等开合（只读框架的 `[data-sidebar-collapsed]` 再决定是否调 `toggleSidebar`）、自动收起只认「导航」：会话行被激活或主栏身份真的变了才收起，展开工作区、开 `⋯` 菜单都不收起 |
 | `mobile/client/settings-adapter.js` | 设置弹窗两级导航转接器：目录 ↔ 详情状态属性、注入「返回设置」、受「分步导航」开关控制                                                                    |
 | `mobile/client/index.jsx`          | 插件入口：注册汉堡按钮到 `conversation.header.leading` 槽位、注册全局面板返回键到 `shell.overlay` 槽位（面板接管主栏时会话连同 header 一起不渲染，汉堡按钮随之消失，这是手机上唯一的回会话入口）、装配上面两个适配器、注册「配置」页 |
-| `scripts/link-mobile-package.mjs`  | 维护仓库里那两条软链（bundled 子包 + 开发态自引用）：`npm install` / `npm ci` 会把它们替换成副本或删掉，构建与测试前先跑它复原                            |
+| `scripts/link-mobile-package.mjs`  | 根包 `postinstall`：在安装物里建出 `node_modules/dsh-pocket-mobile -> <包根>/mobile`（子包唯一的交付机制）。链接建不出来时只告警不失败——row 是 `required: false`，不该因此弄挂整个插件的安装                              |
 | `bin/dsh-pocket.mjs`               | CLI：独立跑同一套代理与 OAuth 配置（`--port` / `--host`）                                                                                                 |
 
 ## 🛠 开发
 
 ```sh
 npm install
-npm run build:client    # 重新打包两份客户端产物（client/client.js、mobile/client/client.js），并复原仓库内的两条软链
+npm run build:client    # 重新打包两份客户端产物（client/client.js、mobile/client/client.js）
 npm test                # 代理 / OAuth / 压缩 / 握手 / 服务 / RPC / 设置 / 手机端界面 / 打包结构
 ```
 

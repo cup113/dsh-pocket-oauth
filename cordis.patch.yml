@@ -11,10 +11,15 @@
 # 所以手机端组件按包内子包交付：
 #
 #   mobile/                                子包 dsh-pocket-mobile（空壳宿主入口 index.js + locale 元数据
-#                                          + 自己的 dsh.client 客户端半边 client/client.js）
-#   node_modules/dsh-pocket-mobile         → ../mobile 的软链（提交在 git，打包时被解引用）
-#   package.json dependencies              "dsh-pocket-mobile": "file:./mobile"
-#   package.json bundledDependencies       ["dsh-pocket-mobile"]（git 安装随包一起落地）
+#                                          + 自己的 dsh.client 客户端半边 client/client.js），随根包
+#                                          package.json 的 files 一起发布
+#   node_modules/dsh-pocket-mobile         → <包根>/mobile 的链接，由根包 postinstall
+#                                          （scripts/link-mobile-package.mjs）在**安装物内部**建出来
+#   package.json                           **不**声明 dsh-pocket-mobile 依赖：git 安装时 pnpm 会把
+#                                          "file:./mobile" 相对 profile 目录解析而失败；bundledDependencies
+#                                          与提交软链同样到不了安装态（pnpm 解包时丢掉 node_modules/**）。
+#                                          postinstall 是唯一能在那之后把子包落进包内 node_modules 的机制；
+#                                          pnpm 11 会先拦下它，需在插件面板「允许这些脚本并重试」放行。
 #
 # 子包 manifest 自己声明 dsh.client，DSH 因此把它当客户端包：那条 row 有自己的「配置」页
 # （遮罩 / 输入框优化 / 设置分步导航三个开关）。客户端产物由 client/build.mjs 的第二个

@@ -18,23 +18,22 @@
     "bin",
     "lib",
     "client",
+    "mobile",
+    "scripts",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build:client": "node scripts/link-mobile-package.mjs && node client/build.mjs",
+    "build:client": "node client/build.mjs",
+    "postinstall": "node scripts/link-mobile-package.mjs",
     "pretest": "npm run build:client",
     "release": "semantic-release",
     "test": "node --test --test-timeout=30000 \"test/*.test.js\""
   },
   "dependencies": {
-    "dsh-pocket-mobile": "file:./mobile",
     "qrcode": "^1.5.4"
   },
-  "bundledDependencies": [
-    "dsh-pocket-mobile"
-  ],
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
@@ -43,7 +42,8 @@
     "ws": "^8.18.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "dsh-pocket-mobile": "file:./mobile"
   },
   "engines": {
     "node": ">=22"

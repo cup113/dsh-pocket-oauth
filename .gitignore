@@ -1,10 +1,17 @@
-# 仓库里刻意提交了两条软链（见 scripts/link-mobile-package.mjs）：
-#   node_modules/dsh-pocket-mobile -> ../mobile  ← 手机端 WebUI 组件的空壳子包（bundledDependencies）
-#   node_modules/dsh-pocket        -> ..         ← 开发态自引用（给将来移动端宿主半边 import 'dsh-pocket/lib/*' 预留）
-# 其余 node_modules 内容照常忽略。
-node_modules/*
-!node_modules/dsh-pocket-mobile
-!node_modules/dsh-pocket
+# 仓库里不再提交任何 node_modules 内容。
+#
+# 手机端子包 dsh-pocket-mobile 的交付方式（详见 scripts/link-mobile-package.mjs）：
+#   mobile/                              子包源码，随 package.json 的 files 一起发布
+#   postinstall 在安装物里建出           node_modules/dsh-pocket-mobile -> <包根>/mobile
+#
+# 提交 node_modules/ 里的软链曾经是交付手段，但它在安装态必然失效（pnpm 解包 git 包时会
+# 丢掉 node_modules/**），所以那两条 negation 已删除，node_modules 一律忽略。
+node_modules/
 *.log
 .DS_Store
 .workbuddy/
+# 打包结构测试（test/packaging.test.js）会在仓库根建临时目录跑真实的 npm pack，
+# 用完即删；留在这里是为了让测试跑完不弄脏工作区。
+.test-tmp/
+# 本地手工验证/实验用（DSH_HOME、隔离 git remote、临时 profile 等）。
+.scratch/

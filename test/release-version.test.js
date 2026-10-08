@@ -38,7 +38,8 @@ test('syncReleaseVersion：一次写根包 / 锁文件 / mobile 子包，且幂�
   const root = fixture();
   try {
     assert.deepEqual(
-      syncReleaseVersion('1.2.3', root).sort(),
+      // 返回的是平台路径：Windows 上是 `mobile\package.json`，这里统一成 POSIX 再比较
+      syncReleaseVersion('1.2.3', root).map((file) => file.split('\\').join('/')).sort(),
       ['mobile/package.json', 'package-lock.json', 'package.json'],
       '三个 manifest 都要写',
     );
