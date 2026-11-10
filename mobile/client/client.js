@@ -52,6 +52,25 @@ var shellCss = `
    \u800C .pI_x6G_centerCol \u7684\u9AD8\u5EA6**\u53EA**\u6765\u81EA .pI_x6G_frame \u7684 grid-template-rows:100%\u3002
    \u56E0\u6B64\u8FD9\u91CC\u5FC5\u987B\u4FDD\u7559 grid\uFF1A\u4E00\u65E6\u6539\u6210 display:block\uFF0CcenterCol \u5C31\u9000\u5316\u4E3A height:auto\uFF0C
    \u584C\u7F29\u5230\u5185\u5BB9\u56FA\u6709\u9AD8\u5EA6\uFF08hero \u88AB\u538B\u6241\u5728\u5C4F\u5E55\u4E0A\u65B9 ~38% \u7684\u6210\u56E0\uFF09\u3002
+
+   ---------------------------------------------------------------------------
+   \u5C42\u53E0\u5951\u7EA6\uFF08\u672C\u6587\u4EF6\u6240\u6709 z-index \u7684\u552F\u4E00\u4F9D\u636E\uFF09
+
+   \u6846\u67B6\u628A\u5F39\u5C42\u5206\u6210\u56FA\u5B9A\u4E24\u6BB5\uFF0C**\u5B83\u4EEC\u90FD\u662F <body> \u4E0A\u7684\u95E8\u6237\uFF0C\u4E0D\u5728\u4EFB\u4F55\u5217\u91CC\u9762**\uFF1A
+     1000  \u8BBE\u7F6E\u5F39\u7A97\u906E\u7F69\uFF08.VOzbGW_overlay\uFF09/ \u9644\u4EF6\u9884\u89C8\u906E\u7F69\uFF08.BInVoG_mask\uFF09
+     1100  Menu / Tooltip / HoverCard \u7B49 primitives \u95E8\u6237
+   \u95E8\u6237\u7684\u5C42\u7EA7\u7531\u6846\u67B6\u51B3\u5B9A\u3001\u63D2\u4EF6\u6539\u4E0D\u52A8\uFF0C\u56E0\u6B64\u79FB\u52A8\u7AEF**\u53EA\u80FD\u628A\u81EA\u5DF1\u65B0\u589E\u7684\u5C42\u653E\u8FDB 900 \u6BB5**\uFF1A
+
+     880  .P3OORG_panel[data-sidebar-right-open]  \u5168\u5C4F\u53F3\u680F\u9762\u677F\uFF08\u8986\u76D6\u4E3B\u680F\uFF09
+     890  #dsh-mobile-sidebar-backdrop            \u62BD\u5C49\u906E\u7F69
+     900  .pI_x6G_sidebarCol                       \u62BD\u5C49\u672C\u4F53
+    1000+ \u6846\u67B6\u5F39\u7A97\u4E0E\u95E8\u6237\uFF08\u89C1\u4E0A\uFF09
+
+   \u8FD9\u4E09\u5C42\u5FC5\u987B\u4E25\u683C\u4F4E\u4E8E 1000\u3002\u66FE\u7ECF\u7684 1240/1250/1260/1300 \u4F1A\u628A\u62BD\u5C49\u91CC\u6253\u5F00\u7684
+   Menu\uFF08\u95E8\u6237 1100\uFF09\u538B\u5230\u906E\u7F69\u548C\u62BD\u5C49**\u540E\u9762**\u2014\u2014\u8868\u73B0\u5C31\u662F\u300C\u70B9\u5DE5\u4F5C\u533A\u65C1\u8FB9\u7684 \u22EF\uFF0C
+   \u5F39\u51FA\u7684\u83DC\u5355\u88AB\u906E\u4F4F\u300D\uFF1B\u540C\u4E00\u539F\u56E0\u4E5F\u8BA9\u8BBE\u7F6E\u5F39\u7A97\u91CC\u7684\u4E0B\u62C9\u83DC\u5355\u88AB 1300 \u7684\u5F39\u7A97\u76D6\u4F4F\u3002
+   \u53CD\u8FC7\u6765\u8BF4\uFF0C\u62BD\u5C49\u5FC5\u987B\u9AD8\u4E8E\u4E3B\u680F\uFF08centerCol z-index:1\u3001overlayLayer z-index:20\uFF09
+   \u4E0E\u7B2C\u4E09\u65B9\u63D2\u4EF6\u81EA\u7ED8\u7684\u6D6E\u5C42\uFF08\u5B9E\u6D4B\u6700\u9AD8 90\uFF09\uFF0C900 \u6BB5\u540C\u65F6\u6EE1\u8DB3\u8FD9\u4E24\u6761\u3002
    ========================================================================== */
 
 @media (max-width: 1023px) {
@@ -93,7 +112,8 @@ var shellCss = `
     max-width: 320px !important;
     height: 100vh !important;
     height: 100dvh !important;
-    z-index: 1250 !important;
+    /* 900 \u6BB5\uFF1A\u62BD\u5C49\u91CC\u6253\u5F00\u7684 Menu \u95E8\u6237\u662F 1100\uFF0C\u5FC5\u987B\u76D6\u5728\u62BD\u5C49\u4E0A\uFF08\u5C42\u53E0\u5951\u7EA6\u89C1\u6587\u4EF6\u5934\uFF09 */
+    z-index: 900 !important;
     background: var(--dsw-alias-bg-module-platform, var(--dsw-alias-bg-layer-2)) !important;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.28) !important;
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -126,13 +146,16 @@ var shellCss = `
     min-width: 0 !important;
   }
 
-  /* \u53F3\u4FA7\u680F\u6253\u5F00\u65F6\u5168\u5C4F\u8986\u76D6 */
+  /* \u53F3\u4FA7\u680F\u6253\u5F00\u65F6\u5168\u5C4F\u8986\u76D6\u3002
+     z-index 880\uFF1A\u9AD8\u4E8E\u4E3B\u680F\uFF081\uFF09\u4E0E overlayLayer\uFF0820\uFF09\uFF0C\u4F46\u4F4E\u4E8E\u62BD\u5C49\uFF08900\uFF09\u2014\u2014
+     \u8FD9\u6837\u9762\u677F\u6253\u5F00\u65F6\u6309\u6C49\u5821\u952E\uFF0C\u62BD\u5C49\u4ECD\u80FD\u76D6\u4E0A\u6765\uFF1B\u4E5F\u4F4E\u4E8E\u6846\u67B6\u95E8\u6237\uFF081100\uFF09\uFF0C
+     \u9762\u677F\u91CC\u7684\u4E0B\u62C9\u83DC\u5355\u624D\u4E0D\u4F1A\u88AB\u5B50\u9762\u677F\u81EA\u5DF1\u76D6\u4F4F\uFF08\u65E7\u503C 1260 \u7684\u4E24\u4E2A\u53CD\u4F8B\uFF09\u3002 */
   .P3OORG_panel[data-sidebar-right-open] {
     position: fixed !important;
     inset: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
-    z-index: 1260 !important;
+    z-index: 880 !important;
   }
 
   /* \u6D6E\u5C42\u4E0E\u4E3B\u680F\u540C\u683C\u53E0\u653E\uFF0C\u4FDD\u6301\u6846\u67B6\u7684\u70B9\u51FB\u7A7F\u900F\u8BED\u4E49\uFF08\u5B50\u5143\u7D20\u4ECD\u7531\u6846\u67B6\u6062\u590D auto\uFF09 */
@@ -155,11 +178,13 @@ var shellCss = `
   }
 }
 
-/* \u5168\u5C40\u79FB\u52A8\u7AEF\u4FA7\u8FB9\u680F\u906E\u7F69\uFF08Backdrop\uFF09\uFF1A\u672A\u6FC0\u6D3B\u65F6\u4E0D\u5360\u5408\u6210\u5C42\u3001\u4E0D\u62E6\u70B9\u51FB */
+/* \u5168\u5C40\u79FB\u52A8\u7AEF\u4FA7\u8FB9\u680F\u906E\u7F69\uFF08Backdrop\uFF09\uFF1A\u672A\u6FC0\u6D3B\u65F6\u4E0D\u5360\u5408\u6210\u5C42\u3001\u4E0D\u62E6\u70B9\u51FB\u3002
+   890\uFF1A\u5939\u5728\u53F3\u680F\u5168\u5C4F\u9762\u677F\uFF08880\uFF09\u4E0E\u62BD\u5C49\uFF08900\uFF09\u4E4B\u95F4\uFF0C\u5E76\u4E14\u4F4E\u4E8E\u6846\u67B6\u95E8\u6237\uFF081100\uFF09\u2014\u2014
+   \u906E\u7F69\u53EA\u538B\u4F4F\u4E3B\u5185\u5BB9\uFF0C\u7EDD\u4E0D\u538B\u62BD\u5C49\u91CC\u6253\u5F00\u7684\u83DC\u5355\uFF08\u89C1\u6587\u4EF6\u5934\u7684\u5C42\u53E0\u5951\u7EA6\uFF09\u3002 */
 #dsh-mobile-sidebar-backdrop {
   position: fixed !important;
   inset: 0 !important;
-  z-index: 1240 !important;
+  z-index: 890 !important;
   background: rgba(0, 0, 0, 0.45) !important;
   opacity: 0;
   visibility: hidden;
@@ -244,13 +269,15 @@ var settingsCss = `
    ========================================================================== */
 
 @media (max-width: 1023px) {
-  /* \u8BBE\u7F6E\u5F39\u7A97\u906E\u7F69\u4E0E\u5916\u5C42\u5C45\u4E2D */
+  /* \u8BBE\u7F6E\u5F39\u7A97\u906E\u7F69\u4E0E\u5916\u5C42\u5C45\u4E2D\u3002
+     \u523B\u610F**\u4E0D**\u8986\u5199 z-index\uFF1A\u6846\u67B6\u503C 1000 \u5DF2\u7ECF\u9AD8\u4E8E\u62BD\u5C49\uFF08900\uFF09\uFF0C\u800C\u8BA9\u6846\u67B6\u95E8\u6237
+     \uFF08Menu/Tooltip\uFF0C1100\uFF09\u7EE7\u7EED\u76D6\u5728\u5F39\u7A97\u4E4B\u4E0A\u2014\u2014\u65E7\u503C 1300 \u4F1A\u628A\u5F39\u7A97\u91CC\u7684\u4E0B\u62C9\u83DC\u5355
+     \u538B\u5230\u5F39\u7A97\u80CC\u540E\uFF08\u540C\u4E00\u7C7B\u300C\u5F39\u7A97\u88AB\u906E\u4F4F\u300D\uFF09\u3002 */
   .VOzbGW_overlay {
     padding: 0 !important;
     display: flex !important;
     align-items: stretch !important;
     justify-content: stretch !important;
-    z-index: 1300 !important;
   }
 
   /* \u8BBE\u7F6E\u9762\u677F\u5BB9\u5668\uFF1A\u5168\u5C4F\uFF0C\u4E0D\u7559\u684C\u9762\u8FB9\u6846 */
@@ -300,6 +327,9 @@ var settingsCss = `
     width: 100% !important;
     max-width: 100% !important;
     min-width: 100% !important;
+    /* \u6846\u67B6\u8FD9\u5C42\u662F content-box\uFF1A\u53EA\u5199 width:100% \u4F1A\u8BA9 390 + 32 \u7684\u5DE6\u53F3 padding \u6491\u51FA
+       \u6A2A\u5411\u6EA2\u51FA\uFF0C\u5206\u7C7B\u6761\u76EE\u8D34\u53F3\u8FB9\u7F18\u88AB\u88C1\u6389\uFF08\u5B9E\u6D4B scrollWidth 422 > clientWidth 390\uFF09\u3002 */
+    box-sizing: border-box !important;
     flex: 1 1 auto !important;
     border-right: none !important;
     padding: 16px 16px 32px !important;
@@ -359,9 +389,13 @@ var settingsCss = `
     flex-direction: column !important;
     width: 100% !important;
     max-width: 100% !important;
+    /* \u540C .VOzbGW_nav\uFF1Acontent-box \u4E0B width:100% + 32px \u6A2A\u5411 padding \u4F1A\u6A2A\u5411\u6EA2\u51FA\uFF0C
+       \u8BE6\u60C5\u9875\u53F3\u4FA7\u63A7\u4EF6\u4E0E\u6587\u5B57\u88AB\u88C1\u6389\uFF08\u5B9E\u6D4B scrollWidth 422 > clientWidth 390\uFF09\u3002 */
+    box-sizing: border-box !important;
     flex: 1 1 auto !important;
     padding: 14px 16px 40px !important;
     overflow-y: auto !important;
+    overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
@@ -576,7 +610,8 @@ var composerCss = `
   }
 
   /* \u6A21\u578B\u4E0B\u62C9\u6D6E\u52A8\u83DC\u5355\uFF08\u6846\u67B6\u91CC\u5DF2\u662F position:fixed\uFF09\uFF1A\u79FB\u52A8\u7AEF\u62AC\u5230\u62C7\u6307\u53EF\u53CA\u5904\u3002
-     z-index \u4FDD\u6301\u4F4E\u4E8E\u8BBE\u7F6E\u5F39\u7A97\uFF081300\uFF09\u4E0E\u4FA7\u8FB9\u680F\uFF081250\uFF09\uFF0C\u9AD8\u4E8E Menu portal\uFF081100\uFF09\u3002
+     z-index 1180 \u4ECD\u5728\u6846\u67B6\u95E8\u6237\uFF081100\uFF09\u4E4B\u4E0A\u3001\u62BD\u5C49\uFF08900\uFF09\u4E4B\u4E0A\u2014\u2014
+     \u5B83\u7531\u4E3B\u680F\u8F93\u5165\u6846\u89E6\u53D1\uFF0C\u4E0D\u5728\u62BD\u5C49\u91CC\uFF0C\u4E0D\u53C2\u4E0E\u62BD\u5C49\u7684\u5C42\u53E0\u5951\u7EA6\u3002
 
      top: auto \u662F\u5FC5\u9700\u7684\uFF0C\u4E0D\u662F\u4FDD\u9669\uFF1A\u6846\u67B6\u7528 inline style \u5B9A\u4F4D\u8FD9\u4E2A\u6D6E\u5C42
      \uFF08ModelSelect \u7684 place() \u2192 setMenuPos({left, top})\uFF0C\u6D4B\u91CF\u671F\u662F
@@ -938,6 +973,38 @@ var touchCss = `
   }
 }
 `;
+var popoverCss = `
+/* ==========================================================================
+   dsh-pocket-mobile: \u7B2C\u4E09\u65B9\u81EA\u7ED8\u6D6E\u5C42\u7684\u7A84\u5C4F\u515C\u5E95\u5939\u53D6
+
+   better-workspaces\uFF08@ds-hu/dsh-better-workspaces\uFF09\u7684\u884C\u5185\u5F39\u5C42\u662F**\u81EA\u7ED8**\u7684
+   .dsh-bw-pop / .dsh-bw-pop-panel\uFF08position:absolute; z-index:60\uFF09\uFF0C\u4E0D\u8D70\u6846\u67B6\u95E8\u6237\uFF0C
+   \u56E0\u6B64\u65E2\u4E0D\u53D7\u4E0A\u9762\u90A3\u4EFD\u5C42\u53E0\u5951\u7EA6\u4FDD\u62A4\uFF0C\u4E5F\u4F1A\u88AB\u5B83\u81EA\u5DF1\u7684\u6EDA\u52A8\u5BB9\u5668\u88C1\u6389\uFF1A\u53F3\u5BF9\u9F50\u5F39\u5C42
+   \uFF08.dsh-bw-pop-right\uFF09\u5728 390px \u89C6\u53E3\u91CC\u88AB\u7B97\u6210 left:-114\uFF08\u5BBD 190\u3001\u951A\u70B9 x\u224863\uFF09\uFF0C
+   \u6574\u5757\u843D\u5230\u5C4F\u5E55\u5DE6\u4FA7\u4E4B\u5916\uFF0C\u6761\u76EE\u5168\u90E8\u70B9\u4E0D\u5230\uFF08\u5B9E\u6D4B\u53EF\u89C1\u6BD4\u4F8B 0.4\uFF0C\u53F3\u4FA7\u4ECD\u662F 0\uFF09\u3002
+   \u5F39\u5C42\u5750\u6807\u7531\u8BE5\u63D2\u4EF6\u7528 JS \u6309\u9F20\u6807\u951A\u70B9 inline \u7B97\uFF0C\u7EAF CSS \u6539\u4E0D\u52A8\u539F\u70B9\uFF0C
+   \u6240\u4EE5\u7A84\u5C4F\u7EDF\u4E00\u6539\u6210\u300C\u8D34\u53F3\u4E0B\u89D2\u7684\u56FA\u5B9A\u6D6E\u5C42\u300D\uFF1Afixed \u7684\u5305\u542B\u5757\u662F\u89C6\u53E3\uFF0C
+   \u4E0D\u53D7 overflow:hidden/clip \u7956\u5148\u5F71\u54CD\uFF0C\u4E5F\u6C38\u8FDC\u843D\u5728\u89E6\u63A7\u70ED\u533A\u91CC\u3002
+   \u684C\u9762\u7AEF\u4E0D\u751F\u6548\uFF08\u8BE5\u7C7B\u540D\u53EA\u5728\u63D2\u4EF6\u81EA\u5DF1\u7684\u89C6\u56FE\u91CC\u51FA\u73B0\uFF09\u3002
+   ========================================================================== */
+@media (max-width: 1023px) {
+  .dsh-bw-pop-panel {
+    position: fixed !important;
+    top: auto !important;
+    left: auto !important;
+    right: 8px !important;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    width: max-content !important;
+    min-width: min(180px, calc(100vw - 16px)) !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: min(60dvh, 420px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    z-index: 1000 !important;
+    box-sizing: border-box !important;
+  }
+}
+`;
 
 // mobile/client/responsive-shell.js
 var MOBILE_BREAKPOINT = 1024;
@@ -968,7 +1035,8 @@ function mobileCss(prefs = currentPrefs) {
     settingsCss,
     prefs.compactComposer === false ? "" : composerCss,
     planCss,
-    touchCss
+    touchCss,
+    popoverCss
   ].filter((part) => part !== "").join("\n\n");
 }
 function injectMobileStyles(doc = document, prefs = currentPrefs) {

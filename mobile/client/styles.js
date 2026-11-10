@@ -21,6 +21,25 @@ export const shellCss = `
    而 .pI_x6G_centerCol 的高度**只**来自 .pI_x6G_frame 的 grid-template-rows:100%。
    因此这里必须保留 grid：一旦改成 display:block，centerCol 就退化为 height:auto，
    塌缩到内容固有高度（hero 被压扁在屏幕上方 ~38% 的成因）。
+
+   ---------------------------------------------------------------------------
+   层叠契约（本文件所有 z-index 的唯一依据）
+
+   框架把弹层分成固定两段，**它们都是 <body> 上的门户，不在任何列里面**：
+     1000  设置弹窗遮罩（.VOzbGW_overlay）/ 附件预览遮罩（.BInVoG_mask）
+     1100  Menu / Tooltip / HoverCard 等 primitives 门户
+   门户的层级由框架决定、插件改不动，因此移动端**只能把自己新增的层放进 900 段**：
+
+     880  .P3OORG_panel[data-sidebar-right-open]  全屏右栏面板（覆盖主栏）
+     890  #dsh-mobile-sidebar-backdrop            抽屉遮罩
+     900  .pI_x6G_sidebarCol                       抽屉本体
+    1000+ 框架弹窗与门户（见上）
+
+   这三层必须严格低于 1000。曾经的 1240/1250/1260/1300 会把抽屉里打开的
+   Menu（门户 1100）压到遮罩和抽屉**后面**——表现就是「点工作区旁边的 ⋯，
+   弹出的菜单被遮住」；同一原因也让设置弹窗里的下拉菜单被 1300 的弹窗盖住。
+   反过来说，抽屉必须高于主栏（centerCol z-index:1、overlayLayer z-index:20）
+   与第三方插件自绘的浮层（实测最高 90），900 段同时满足这两条。
    ========================================================================== */
 
 @media (max-width: 1023px) {
@@ -62,7 +81,8 @@ export const shellCss = `
     max-width: 320px !important;
     height: 100vh !important;
     height: 100dvh !important;
-    z-index: 1250 !important;
+    /* 900 段：抽屉里打开的 Menu 门户是 1100，必须盖在抽屉上（层叠契约见文件头） */
+    z-index: 900 !important;
     background: var(--dsw-alias-bg-module-platform, var(--dsw-alias-bg-layer-2)) !important;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.28) !important;
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -95,13 +115,16 @@ export const shellCss = `
     min-width: 0 !important;
   }
 
-  /* 右侧栏打开时全屏覆盖 */
+  /* 右侧栏打开时全屏覆盖。
+     z-index 880：高于主栏（1）与 overlayLayer（20），但低于抽屉（900）——
+     这样面板打开时按汉堡键，抽屉仍能盖上来；也低于框架门户（1100），
+     面板里的下拉菜单才不会被子面板自己盖住（旧值 1260 的两个反例）。 */
   .P3OORG_panel[data-sidebar-right-open] {
     position: fixed !important;
     inset: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
-    z-index: 1260 !important;
+    z-index: 880 !important;
   }
 
   /* 浮层与主栏同格叠放，保持框架的点击穿透语义（子元素仍由框架恢复 auto） */
@@ -124,11 +147,13 @@ export const shellCss = `
   }
 }
 
-/* 全局移动端侧边栏遮罩（Backdrop）：未激活时不占合成层、不拦点击 */
+/* 全局移动端侧边栏遮罩（Backdrop）：未激活时不占合成层、不拦点击。
+   890：夹在右栏全屏面板（880）与抽屉（900）之间，并且低于框架门户（1100）——
+   遮罩只压住主内容，绝不压抽屉里打开的菜单（见文件头的层叠契约）。 */
 #dsh-mobile-sidebar-backdrop {
   position: fixed !important;
   inset: 0 !important;
-  z-index: 1240 !important;
+  z-index: 890 !important;
   background: rgba(0, 0, 0, 0.45) !important;
   opacity: 0;
   visibility: hidden;
@@ -214,13 +239,15 @@ export const settingsCss = `
    ========================================================================== */
 
 @media (max-width: 1023px) {
-  /* 设置弹窗遮罩与外层居中 */
+  /* 设置弹窗遮罩与外层居中。
+     刻意**不**覆写 z-index：框架值 1000 已经高于抽屉（900），而让框架门户
+     （Menu/Tooltip，1100）继续盖在弹窗之上——旧值 1300 会把弹窗里的下拉菜单
+     压到弹窗背后（同一类「弹窗被遮住」）。 */
   .VOzbGW_overlay {
     padding: 0 !important;
     display: flex !important;
     align-items: stretch !important;
     justify-content: stretch !important;
-    z-index: 1300 !important;
   }
 
   /* 设置面板容器：全屏，不留桌面边框 */
@@ -270,6 +297,9 @@ export const settingsCss = `
     width: 100% !important;
     max-width: 100% !important;
     min-width: 100% !important;
+    /* 框架这层是 content-box：只写 width:100% 会让 390 + 32 的左右 padding 撑出
+       横向溢出，分类条目贴右边缘被裁掉（实测 scrollWidth 422 > clientWidth 390）。 */
+    box-sizing: border-box !important;
     flex: 1 1 auto !important;
     border-right: none !important;
     padding: 16px 16px 32px !important;
@@ -329,9 +359,13 @@ export const settingsCss = `
     flex-direction: column !important;
     width: 100% !important;
     max-width: 100% !important;
+    /* 同 .VOzbGW_nav：content-box 下 width:100% + 32px 横向 padding 会横向溢出，
+       详情页右侧控件与文字被裁掉（实测 scrollWidth 422 > clientWidth 390）。 */
+    box-sizing: border-box !important;
     flex: 1 1 auto !important;
     padding: 14px 16px 40px !important;
     overflow-y: auto !important;
+    overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
@@ -547,7 +581,8 @@ export const composerCss = `
   }
 
   /* 模型下拉浮动菜单（框架里已是 position:fixed）：移动端抬到拇指可及处。
-     z-index 保持低于设置弹窗（1300）与侧边栏（1250），高于 Menu portal（1100）。
+     z-index 1180 仍在框架门户（1100）之上、抽屉（900）之上——
+     它由主栏输入框触发，不在抽屉里，不参与抽屉的层叠契约。
 
      top: auto 是必需的，不是保险：框架用 inline style 定位这个浮层
      （ModelSelect 的 place() → setMenuPos({left, top})，测量期是
@@ -908,6 +943,39 @@ export const touchCss = `
   #dsh-mobile-sidebar-backdrop,
   .dsh-mobile-settings-back-bar {
     display: none !important;
+  }
+}
+`;
+
+export const popoverCss = `
+/* ==========================================================================
+   dsh-pocket-mobile: 第三方自绘浮层的窄屏兜底夹取
+
+   better-workspaces（@ds-hu/dsh-better-workspaces）的行内弹层是**自绘**的
+   .dsh-bw-pop / .dsh-bw-pop-panel（position:absolute; z-index:60），不走框架门户，
+   因此既不受上面那份层叠契约保护，也会被它自己的滚动容器裁掉：右对齐弹层
+   （.dsh-bw-pop-right）在 390px 视口里被算成 left:-114（宽 190、锚点 x≈63），
+   整块落到屏幕左侧之外，条目全部点不到（实测可见比例 0.4，右侧仍是 0）。
+   弹层坐标由该插件用 JS 按鼠标锚点 inline 算，纯 CSS 改不动原点，
+   所以窄屏统一改成「贴右下角的固定浮层」：fixed 的包含块是视口，
+   不受 overflow:hidden/clip 祖先影响，也永远落在触控热区里。
+   桌面端不生效（该类名只在插件自己的视图里出现）。
+   ========================================================================== */
+@media (max-width: 1023px) {
+  .dsh-bw-pop-panel {
+    position: fixed !important;
+    top: auto !important;
+    left: auto !important;
+    right: 8px !important;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    width: max-content !important;
+    min-width: min(180px, calc(100vw - 16px)) !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: min(60dvh, 420px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    z-index: 1000 !important;
+    box-sizing: border-box !important;
   }
 }
 `;

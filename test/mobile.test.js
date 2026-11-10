@@ -124,6 +124,43 @@ test('回归防护：旧错误选择器与死钩子不得回潮', () => {
   assert.ok(css.includes('[data-trigger-menu]'), '指令菜单的真实钩子是 data-trigger-menu');
 });
 
+test('层叠契约：抽屉/遮罩/右栏面板必须低于框架门户层，否则抽屉里的弹窗被遮住', () => {
+  const css = mobileCss();
+  /** 取选择器规则体里声明的 z-index 数值。 */
+  const zIndexOf = (selector) => {
+    const body = ruleBody(css, selector);
+    const match = body.match(/z-index:\s*(\d+)\s*!important/);
+    assert.ok(match, `${selector} 必须显式声明 z-index`);
+    return Number(match[1]);
+  };
+
+  const drawer = zIndexOf('.pI_x6G_sidebarCol');
+  const backdrop = zIndexOf('#dsh-mobile-sidebar-backdrop');
+  const rightPanel = zIndexOf('.P3OORG_panel[data-sidebar-right-open]');
+
+  // 框架门户是 <body> 上的 1100（Menu/Tooltip），弹窗层是 1000（设置/附件遮罩）。
+  // 插件只加这三层，全部必须落在 1000 以下：菜单门户因此永远盖在抽屉与遮罩之上。
+  for (const [name, value] of [
+    ['抽屉 .pI_x6G_sidebarCol', drawer],
+    ['遮罩 #dsh-mobile-sidebar-backdrop', backdrop],
+    ['全屏右栏 .P3OORG_panel', rightPanel],
+  ]) {
+    assert.ok(value < 1000, `${name} 的 z-index=${value} 不得 ≥1000：会压住框架门户，导致抽屉里打开的菜单被遮住`);
+  }
+
+  // 抽屉要盖住主栏（centerCol z-index:1、overlayLayer z-index:20）与遮罩；
+  // 全屏右栏面板要垫在遮罩与抽屉之下（面板打开时按汉堡键，抽屉仍能盖上来）。
+  assert.ok(drawer > 20, `抽屉 z-index=${drawer} 必须高于 overlayLayer(20)`);
+  assert.ok(backdrop < drawer, `遮罩 ${backdrop} 必须低于抽屉 ${drawer}`);
+  assert.ok(rightPanel < backdrop, `全屏右栏 ${rightPanel} 必须低于遮罩 ${backdrop}`);
+
+  // 设置弹窗不得再覆写框架的 1000：1300 会把弹窗内的下拉菜单（门户 1100）压到弹窗背后。
+  assert.ok(
+    !/z-index/.test(ruleBody(css, '.VOzbGW_overlay')),
+    '设置弹窗不得覆写 z-index：框架值 1000 才能让弹窗内的下拉菜单（门户 1100）显示在弹窗之上',
+  );
+});
+
 test('移动端样式规则完整性：覆盖关键痛点选择器', () => {
   // 1. 抽屉侧边栏
   assert.ok(bundle.includes('.pI_x6G_frame'), '覆盖 AppFrame 网格');
@@ -149,6 +186,21 @@ test('移动端样式规则完整性：覆盖关键痛点选择器', () => {
   assert.ok(bundle.includes('.Mbwy4a_card'), '包含 QuestionComposer 移动端卡片样式');
   assert.ok(bundle.includes('.mna1RW_card'), '包含 ApprovalPanel 移动端卡片样式');
   assert.ok(bundle.includes('.k74WwW_card'), '包含 PlanCard 产物卡片样式');
+
+  // 5. 第三方自绘浮层的窄屏兜底（better-workspaces 的行内弹层不是门户，必须夹进视口）
+  assert.ok(bundle.includes('.dsh-bw-pop-panel'), '包含 better-workspaces 行内弹层的窄屏兜底夹取');
+
+  // 6. 设置面板的两层容器在 content-box 下必须显式 border-box，否则横向溢出被裁
+  assert.ok(
+    ruleBody(mobileCss(), '.VOzbGW_nav').includes('box-sizing: border-box !important'),
+    '设置一级导航必须声明 border-box（否则 width:100% + 32px padding 横向溢出）',
+  );
+  assert.ok(
+    ruleBody(mobileCss(), '[data-mobile-settings-view="detail"] .VOzbGW_options').includes(
+      'box-sizing: border-box !important',
+    ),
+    '设置详情页必须声明 border-box（否则右侧控件被 .VOzbGW_content 的 overflow:hidden 裁掉）',
+  );
 });
 
 // ── 抽屉开合的幂等性 ────────────────────────────────────────────────────────
