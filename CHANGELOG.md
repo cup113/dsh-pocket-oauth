@@ -1,3 +1,12 @@
+## [2.10.7](https://github.com/ds-hu/dsh-pocket-oauth/compare/v2.10.6...v2.10.7) (2026-11-11)
+
+
+### Bug Fixes
+
+* **mobile:** 修复移动端弹窗被遮住（抽屉/遮罩落回 900 段 + 窄屏浮层夹取） ([1e5df56](https://github.com/ds-hu/dsh-pocket-oauth/commit/1e5df56be5d9c83c8b15c5b3e9a548c90f3e69d8)), closes [#dsh-mobile-sidebar-backdrop](https://github.com/ds-hu/dsh-pocket-oauth/issues/dsh-mobile-sidebar-backdrop)
+* **release:** 仓库迁移后对齐 repository 链接，修 semantic-release EMISMATCHGITHUBURL ([4e23170](https://github.com/ds-hu/dsh-pocket-oauth/commit/4e23170e3c2c011cfc5f10c464d6070462a1a2a9))
+* **release:** 关闭 semantic-release 的 issue 评论/标签，避免发版被判失败 ([0437b17](https://github.com/ds-hu/dsh-pocket-oauth/commit/0437b174c94b9bc6382b3c706f97961c15f1caf8)), closes [117/#122](https://github.com/ds-hu/dsh-pocket-oauth/issues/122)
+
 ## [2.10.6](https://github.com/shaobeichen/dsh-pocket/compare/v2.10.5...v2.10.6) (2026-09-10)
 
 
