@@ -7,16 +7,16 @@
 <p align="center"><a href="README.en.md">English</a> | <a href="README.md">中文</a></p>
 
 <p align="center">
-  <a href="https://github.com/cup113/dsh-pocket-oauth/actions"><img alt="CI" src="https://github.com/cup113/dsh-pocket-oauth/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/ds-hu/dsh-pocket-oauth/actions"><img alt="CI" src="https://github.com/ds-hu/dsh-pocket-oauth/actions/workflows/test.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: GPL-2.0" src="https://img.shields.io/badge/license-GPL--2.0-blue.svg"></a>
-  <a href="https://github.com/cup113/dsh-pocket-oauth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cup113/dsh-pocket-oauth"></a>
+  <a href="https://github.com/ds-hu/dsh-pocket-oauth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/ds-hu/dsh-pocket-oauth"></a>
   <a href="https://awesome-dsh-plugin.com/zh/"><img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg"></a>
 </p>
 
 > 把 **DeepSeek Harness 装进你的口袋**：插件只开一个端口（3081），用 **Gitee / GitHub OAuth 登录**（初始化时二选一）代替访问密码，**隧道由你自己建**——手机随时实时看到电脑上的同一个界面。
 
 <p align="center">
-  ⭐ 顺手留颗 Star，作者能高兴一整天 &nbsp;·&nbsp; <a href="https://github.com/cup113/dsh-pocket-oauth">行，给你一颗 Star</a>
+  ⭐ 顺手留颗 Star，作者能高兴一整天 &nbsp;·&nbsp; <a href="https://github.com/ds-hu/dsh-pocket-oauth">行，给你一颗 Star</a>
 </p>
 
 ## 这是什么
@@ -240,4 +240,4 @@ npm test                # 代理 / OAuth / 压缩 / 握手 / 服务 / RPC / 设�
 
 ---
 
-**有问题？欢迎反馈**：遇到 Bug、有想法、想提需求，请到 [GitHub Issues](https://github.com/cup113/dsh-pocket-oauth/issues) 告诉我们 🙏
+**有问题？欢迎反馈**：遇到 Bug、有想法、想提需求，请到 [GitHub Issues](https://github.com/ds-hu/dsh-pocket-oauth/issues) 告诉我们 🙏

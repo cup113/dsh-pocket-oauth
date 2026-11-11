@@ -7,16 +7,16 @@
 <p align="center"><a href="README.en.md">English</a> | <a href="README.md">中文</a></p>
 
 <p align="center">
-  <a href="https://github.com/cup113/dsh-pocket-oauth/actions"><img alt="CI" src="https://github.com/cup113/dsh-pocket-oauth/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/ds-hu/dsh-pocket-oauth/actions"><img alt="CI" src="https://github.com/ds-hu/dsh-pocket-oauth/actions/workflows/test.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: GPL-2.0" src="https://img.shields.io/badge/license-GPL--2.0-blue.svg"></a>
-  <a href="https://github.com/cup113/dsh-pocket-oauth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/cup113/dsh-pocket-oauth"></a>
+  <a href="https://github.com/ds-hu/dsh-pocket-oauth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/ds-hu/dsh-pocket-oauth"></a>
   <a href="https://awesome-dsh-plugin.com"><img alt="Awesome DSH Plugin" src="https://awesome-dsh-plugin.com/badge.svg"></a>
 </p>
 
 > Put **DeepSeek Harness in your pocket**: the plugin exposes exactly one port (3081), uses **Gitee or GitHub OAuth sign-in** (pick one during setup) instead of an access PIN, and **you bring your own tunnel** — your phone sees the same screen as your computer, live.
 
 <p align="center">
-  ⭐ A Star would make the author's day &nbsp;·&nbsp; <a href="https://github.com/cup113/dsh-pocket-oauth">Here, take one</a>
+  ⭐ A Star would make the author's day &nbsp;·&nbsp; <a href="https://github.com/ds-hu/dsh-pocket-oauth">Here, take one</a>
 </p>
 
 ## What is this
@@ -241,4 +241,4 @@ npm test                # proxy / OAuth / compression / handshake / service / RP
 
 ---
 
-**Questions?** Bugs, ideas, requests — please open an issue on [GitHub Issues](https://github.com/cup113/dsh-pocket-oauth/issues) 🙏
+**Questions?** Bugs, ideas, requests — please open an issue on [GitHub Issues](https://github.com/ds-hu/dsh-pocket-oauth/issues) 🙏

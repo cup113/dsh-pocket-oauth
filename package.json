@@ -80,12 +80,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cup113/dsh-pocket-oauth.git"
+    "url": "git+https://github.com/ds-hu/dsh-pocket-oauth.git"
   },
   "bugs": {
-    "url": "https://github.com/cup113/dsh-pocket-oauth/issues"
+    "url": "https://github.com/ds-hu/dsh-pocket-oauth/issues"
   },
-  "homepage": "https://github.com/cup113/dsh-pocket-oauth",
+  "homepage": "https://github.com/ds-hu/dsh-pocket-oauth",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
