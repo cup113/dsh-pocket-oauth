@@ -14,7 +14,17 @@ module.exports = {
       { changelogFile: 'CHANGELOG.md' },
     ],
     './scripts/sync-release-version.mjs',
-    '@semantic-release/github',
+    [
+      '@semantic-release/github',
+      {
+        // 仓库历史里带着旧仓库的 PR/issue 引用（#117、#122 …），在 ds-hu 下这些编号
+        // 不存在，success 步骤按 release notes 里的 `#123` 去评论会直接抛错、把整次
+        // 发版标成失败（npm 发布步骤随之被跳过）。发版不需要自动评论/打标签。
+        successComment: false,
+        failComment: false,
+        releasedLabels: false,
+      },
+    ],
     [
       '@semantic-release/git',
       { assets: ['CHANGELOG.md', 'package.json', 'package-lock.json', 'mobile/package.json'] },
