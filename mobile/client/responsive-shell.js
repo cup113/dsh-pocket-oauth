@@ -14,7 +14,7 @@
  *      会话行被**激活**（且没落在行内控件上）→ 收起；主栏身份真的变了 → 收起。
  */
 
-import { shellCss, settingsCss, composerCss, planCss, touchCss } from './styles.js';
+import { shellCss, settingsCss, composerCss, planCss, touchCss, popoverCss } from './styles.js';
 
 /** 与 dsh-client-ui-layout 的 SIDEBAR_AUTO_COLLAPSE 对齐。 */
 export const MOBILE_BREAKPOINT = 1024;
@@ -96,6 +96,7 @@ export function mobileCss(prefs = currentPrefs) {
     prefs.compactComposer === false ? '' : composerCss,
     planCss,
     touchCss,
+    popoverCss,
   ].filter((part) => part !== '').join('\n\n');
 }
 

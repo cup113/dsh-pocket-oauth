@@ -31,9 +31,14 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8');
 const mobileManifest = JSON.parse(readFileSync(join(root, 'mobile', 'package.json'), 'utf8'));
 
-/** cordis.patch.yml 里插入的 row（id + name），按出现顺序。 */
+/**
+ * cordis.patch.yml 里插入的 row（id + name），按出现顺序。
+ * YAML 里作用域包名带引号（name: "@ds-hu/dsh-pocket"），这里脱掉引号还原成真实包名，
+ * 否则后续 `row.name === pkg.name` 与 Node 解析都会拿到带引号的假包名。
+ */
 function patchRows() {
-  return [...patch.matchAll(/-\s*id:\s*([^\s#]+)\s*\n\s*name:\s*([^\s#]+)/g)].map(([, id, name]) => ({ id, name }));
+  return [...patch.matchAll(/-\s*id:\s*([^\s#]+)\s*\n\s*name:\s*([^\s#]+)/g)]
+    .map(([, id, raw]) => ({ id, name: raw.replace(/^["']|["']$/g, '') }));
 }
 
 // ── bundle patch：两条 row ───────────────────────────────────────────────────
@@ -41,13 +46,17 @@ function patchRows() {
 test('cordis.patch.yml：一个 bundle、两条 row，都是裸包名', () => {
   const rows = patchRows();
   assert.deepEqual(rows, [
-    { id: 'dsh-pocket', name: 'dsh-pocket' },
+    // 根包已发布为 npm 作用域包 @ds-hu/dsh-pocket（行 name 必须是**包名**，命中的是安装物里的包）
+    { id: 'dsh-pocket', name: pkg.name },
     { id: 'dsh-pocket-mobile', name: 'dsh-pocket-mobile' },
   ], '两条 row：远程操控 + 手机端 WebUI（独立客户端包；id/name 稳定 → 面板开关覆盖在升级后依然生效）');
   // 行 id 是面板开关写 disabled 覆盖的键：必须唯一
   assert.equal(new Set(rows.map((r) => r.id)).size, 2);
   for (const row of rows) {
-    assert.ok(!row.name.includes('/'), `${row.name} 必须是裸包名：带 "/" 的行名解析不到包`);
+    // 包名只允许两种形态：裸包名 dsh-pocket-mobile，或作用域包名 @scope/name；
+    // 子路径（dsh-pocket/mobile、./mobile 之类）不是包名，Loader 解析不到。
+    assert.match(row.name, /^(?:@[^\s/@]+\/)?[^\s/@]+$/,
+      `${row.name} 必须是包名（裸包名或 @scope/name），不能是子路径`);
   }
 });
 
