@@ -2,7 +2,10 @@ name: Release
 
 # 手动触发（Actions 页面 → Release → Run workflow）：
 # push 只更新代码，本地测过没问题后再来这里手动发版（semantic-release
-# 按自上次发版以来的提交自动定版本号，无需手动填）
+# 按自上次发版以来的提交自动定版本号，无需手动填）。
+# 发版产物：CHANGELOG + 根/子包版本号 + git tag + GitHub Release，并发布到 npm
+# （@ds-hu/dsh-pocket）。两份客户端产物由本 job 的 `npm test` 预构建（pretest），
+# 发布步骤直接用该工作区打包，因此发版不依赖本地 build。
 on:
   workflow_dispatch:
 
@@ -21,9 +24,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
       - run: npm ci
+      # pretest 会跑 build:client：两份客户端产物在这里构建，发版不再另行打包
       - run: npm test
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
+      # npm 发布单独一步做（刻意不挂 @semantic-release/npm：版本号/子包/锁文件由
+      # scripts/sync-release-version.mjs 统一写，避免两个 prepare 抢着改 package.json）。
+      # semantic-release 的 git 插件已把新版本号提交并打成 tag，这里直接发该版本。
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@ds-hu/dsh-pocket@${version}" version >/dev/null 2>&1; then
+            echo "npm 上已有 @ds-hu/dsh-pocket@${version}，跳过发布"
+            exit 0
+          fi
+          npm publish --access public
+          echo "published @ds-hu/dsh-pocket@${version}"
+

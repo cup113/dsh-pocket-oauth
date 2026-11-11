@@ -1,7 +1,7 @@
 // 发版时同步版本号（semantic-release 本地 prepare 插件）。
 //
-// 仓库不发 npm（.releaserc.cjs 注释），@semantic-release/npm 已移除，没人再写
-// 根 package.json 的版本号；而 mobile 子包又必须声明与根包一致的 version：
+// 版本号由这里统一写（npm 发布走 Release workflow 的独立步骤，不经
+// @semantic-release/npm，详见 .releaserc.cjs）；而 mobile 子包又必须声明与根包一致的 version：
 // DSH 的 DeepSeek 请求扩展 `dsh_plugin_packages`
 //（@deepseek-ai/dsh-plugin-package-inventory-deepseek）要求每个活跃插件包
 // manifest 都有非空 name+version，否则每个 deepseek-official 请求在发出前直接
