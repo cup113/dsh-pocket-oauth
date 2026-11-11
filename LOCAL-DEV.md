@@ -104,7 +104,7 @@ shasum -a 1 client/client.js | cut -c1-12
 ## 四、换回 GitHub 版本（当前默认安装方式）
 
 ```sh
-dsh plugin --profile web add github:cup113/dsh-pocket-oauth
+dsh plugin --profile web add github:ds-hu/dsh-pocket-oauth
 ```
 
 重装会把软链换成从仓库 main 拉取的正式安装（包名是 `dsh-pocket`，仓库名是 `dsh-pocket-oauth`）：
@@ -112,14 +112,14 @@ dsh plugin --profile web add github:cup113/dsh-pocket-oauth
 ```sh
 ls -l ~/.dsh/profiles/web/node_modules/dsh-pocket      # 真实目录，不再是软链
 grep -A2 'dsh-pocket:' ~/.dsh/profiles/web/pnpm-lock.yaml
-# specifier: github:cup113/dsh-pocket-oauth
-# version: https://codeload.github.com/cup113/dsh-pocket-oauth/tar.gz/<提交>
+# specifier: github:ds-hu/dsh-pocket-oauth
+# version: https://codeload.github.com/ds-hu/dsh-pocket-oauth/tar.gz/<提交>
 ```
 
 之后重启 dsh web 即可。pnpm 会把结果 pin 在当时的 main 提交上——想跟上新提交，再跑一次上面的命令。
 
 > **从 GitHub 装时会有一次 build-blocked**：pnpm 11 默认拦下依赖脚本，而手机端子包正是由根包 `postinstall` 建链接的。命令会以 `ERR_PNPM_IGNORED_BUILDS` 失败一次，按提示在**插件面板**点「允许这些脚本并重试」（等价于把 `allowBuilds` 里的 `dsh-pocket@…` 设为 `true`）即可；放行后重跑同一条 add 命令，`mobile/` 那条 row 就能激活。授权按包名记在该 profile 的 `pnpm-workspace.yaml`，之后升级不用再点。
-> 注意：这条授权允许该包以**你的用户权限**执行 `postinstall`，请确认你装的是本仓库（`github:cup113/dsh-pocket-oauth`）。
+> 注意：这条授权允许该包以**你的用户权限**执行 `postinstall`，请确认你装的是本仓库（`github:ds-hu/dsh-pocket-oauth`）。
 > 装完可以确认子包链接已在安装物里：`ls ~/.dsh/profiles/web/node_modules/dsh-pocket/node_modules/` 应能看到 `dsh-pocket-mobile`。
 
 > 设置页的「一键更新」会探测安装方式并自动选择正确动作：本地 clone 软链（`link:`）安装执行 `git pull --ff-only`，`github:` 规格安装重跑上面的 add 命令；两者成功后都会自动重启生效。
